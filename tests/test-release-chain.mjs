@@ -5,6 +5,7 @@
 //      pull_request 信任，会让「全自动发布」断成两截
 //   2) 发布 PR（同仓 release-please-- 分支）也在 auto-merge 覆盖范围内
 //   3) 需要时能手动补跑：release-please / ci 都保留 workflow_dispatch
+//   4) npm 发布认证走 Trusted Publishing（OIDC）：无长期密钥，job 必须拿到 id-token: write
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -41,7 +42,13 @@ console.log('发布链契约测试全部通过')
 
 const publish = read('.github/workflows/publish-npm.yml');
 const verify = read('.github/workflows/verify-npm-release.yml');
-assert.ok(publish.includes('npm whoami >/dev/null 2>&1'), 'authentication errors must be diagnosed without exposing account details');
+// 认证走 npm Trusted Publishing（OIDC）：没有长期密钥可以泄漏、过期或被撤销。
+assert.ok(/^\s*id-token:\s*write\s*$/m.test(publish), 'publish must request id-token: write for trusted publishing');
+assert.ok(!publish.includes('secrets.NPM_TOKEN'), 'publish must not depend on a long-lived npm token');
+assert.ok(!publish.includes('NODE_AUTH_TOKEN'), 'publish must not read NODE_AUTH_TOKEN');
+assert.ok(publish.includes('ACTIONS_ID_TOKEN_REQUEST_URL'), 'missing OIDC must be diagnosed without exposing credentials');
+const nodeVersion = publish.match(/node-version:\s*['"]?(\d+)/);
+assert.ok(nodeVersion && Number(nodeVersion[1]) >= 22, 'trusted publishing requires Node >= 22.14 (npm CLI >= 11.5.1)');
 assert.ok(publish.includes('verify_only'), 'authentication diagnostics must not require publishing');
 assert.ok(publish.includes('${GITHUB_REF_NAME#v}'), 'release tag must match package version');
 assert.ok(publish.includes('npm publish --access public'), 'published package must be public');
