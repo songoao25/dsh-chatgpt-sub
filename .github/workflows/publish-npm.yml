@@ -12,6 +12,11 @@ name: Publish NPM package
 # 2026-09-30 v1.20.10 正是这样从几十秒变成十几分钟、并且常常判红的。
 #
 # 公开可用性改由独立的 verify-npm-release.yml 后台读回校验，不阻塞这里。
+#
+# 认证：npm Trusted Publishing（OIDC），不使用长期密钥。
+# job 需要 permissions: id-token: write；npm CLI 会自动把 GitHub 签发的 OIDC
+# token 换成一次性的发布凭证。前置条件：在 npm 上为本包配置可信发布者
+# （仓库 + workflow 文件名 + 允许 npm publish）。
 on:
   push:
     tags:
@@ -25,6 +30,8 @@ on:
         default: false
 
 permissions:
+  # OIDC：npm 可信发布需要签发 id-token；其余权限保持只读。
+  id-token: write
   contents: read
 
 concurrency:
@@ -43,8 +50,10 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          # 可信发布要求 npm CLI >= 11.5.1、Node >= 22.14；Node 24 自带 npm 11.x
+          node-version: 24
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false
 
       - name: Verify tag matches package version
         shell: bash
@@ -59,27 +68,21 @@ jobs:
           fi
           echo "Releasing dsh-chatgpt-sub@$package_version"
 
-      - name: Check npm publishing authentication
+      - name: Check OIDC publishing environment
         shell: bash
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "::error::NPM_TOKEN is missing. Configure a valid npm publishing token for this package."
+          # 不再有长期密钥可验：这里只确认 job 拿到了签发 OIDC token 的权限。
+          # 包级授权（可信发布者是否覆盖本 workflow）由 registry 在发布时判定。
+          if [ -z "$ACTIONS_ID_TOKEN_REQUEST_URL" ] || [ -z "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then
+            echo "::error::OIDC token request is unavailable. Add 'permissions: id-token: write' to this workflow."
             exit 1
           fi
-          if ! npm whoami >/dev/null 2>&1; then
-            echo "::error::npm rejected NPM_TOKEN. Renew the publishing token and grant write permission for dsh-chatgpt-sub; account details are not logged."
-            exit 1
-          fi
-          echo "npm authentication accepted. Package-specific publishing permission is checked when publishing."
+          echo "OIDC token request available (node $(node --version), npm $(npm --version))."
 
       # prepublishOnly 会先 npm run build，保证 npm 包里的 lib/ 与 src/ 一致。
       - name: Publish package
         if: ${{ inputs.verify_only != true }}
         shell: bash
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           package_name="$(node -p "require('./package.json').name")"
           version="$(node -p "require('./package.json').version")"
