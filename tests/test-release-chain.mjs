@@ -23,13 +23,11 @@ assert.ok(releasePlease.includes('secrets.AUTOMATION_TOKEN || github.token'),
 assert.ok(autoMerge.includes('secrets.AUTOMATION_TOKEN || secrets.GITHUB_TOKEN'),
   'auto-merge must merge with AUTOMATION_TOKEN, falling back to GITHUB_TOKEN')
 
-// ---------- 2. 发布 PR 也在自动合并范围内 ----------
-assert.ok(/startsWith\(github\.event\.pull_request\.head\.ref, 'release-please--'\)/.test(autoMerge),
-  'auto-merge must also cover release-please pull requests')
-assert.ok(autoMerge.includes('github.event.pull_request.head.repo.full_name == github.repository'),
-  'the release-please branch must be required to live in this repository (no fork trickery)')
-assert.ok(autoMerge.includes('github.event.pull_request.user.login == github.repository_owner'),
-  'owner pull requests keep auto-merging')
+// Release PRs require explicit maintainer confirmation, matching Bottom Info Bar.
+assert.ok(autoMerge.includes("!startsWith(github.event.pull_request.head.ref, 'release-please--')"), 'release branches must be excluded from auto-merge');
+assert.ok(autoMerge.includes("!contains(join(github.event.pull_request.labels.*.name, ','), 'autorelease')"), 'release labels must be excluded from auto-merge');
+assert.ok(autoMerge.includes("!startsWith(github.event.pull_request.title, 'chore(main): release ')"), 'release titles must be excluded from auto-merge');
+assert.ok(autoMerge.includes('github.event.pull_request.user.login == github.repository_owner'), 'only owner code PRs auto-merge');
 
 // ---------- 3. 手动补跑入口保留 ----------
 for (const [name, text] of [['release-please.yml', releasePlease], ['ci.yml', ci]]) {
@@ -40,3 +38,12 @@ for (const [name, text] of [['release-please.yml', releasePlease], ['ci.yml', ci
 assert.ok(!releasePlease.includes('npm publish'), 'release-please must not publish to npm')
 
 console.log('发布链契约测试全部通过')
+
+const publish = read('.github/workflows/publish-npm.yml');
+const verify = read('.github/workflows/verify-npm-release.yml');
+assert.ok(publish.includes('npm whoami >/dev/null 2>&1'), 'authentication errors must be diagnosed without exposing account details');
+assert.ok(publish.includes('verify_only'), 'authentication diagnostics must not require publishing');
+assert.ok(publish.includes('${GITHUB_REF_NAME#v}'), 'release tag must match package version');
+assert.ok(publish.includes('npm publish --access public'), 'published package must be public');
+assert.ok(!publish.includes('verify-npm-publication.mjs'), 'publish job must not wait for public registry propagation');
+assert.ok(verify.includes('node scripts/verify-npm-publication.mjs'), 'public availability is verified separately');

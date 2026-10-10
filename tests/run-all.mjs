@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path'
 
 const root = dirname(fileURLToPath(new URL('../package.json', import.meta.url)))
 const files = [
+  'test-language-runtime.mjs',
   'test-alpha4-client-contract.mjs',
   'test-locale-copy.mjs',
   'test-install-docs.mjs',

@@ -44,9 +44,7 @@ assert.equal(pkg.description, en.meta.description,
   'package.json description is the English fallback and must equal locale/en.json meta.description')
 
 // ---------- 3. client half 的字典 ----------
-const dictionaryBlock = source.match(/const LOCALES = \{[\s\S]*?\n\};/)
-assert.ok(dictionaryBlock, 'client half must define the zh/en dictionary')
-const LOCALES = vm.runInNewContext(dictionaryBlock[0] + '; LOCALES')
+const { LOCALES } = await import('../src/locales.js')
 const zhKeys = Object.keys(LOCALES.zh)
 const enKeys = Object.keys(LOCALES.en)
 assert.deepEqual(enKeys.filter((key) => !zhKeys.includes(key)), [], 'every English key needs a Chinese one')
@@ -131,6 +129,7 @@ function createLocaleService() {
   let active = 'zh'
   return {
     setActive: (id) => { active = id },
+    getSnapshot: () => ({ active }),
     register: (ns, dicts) => { namespaces.set(ns, dicts); return () => namespaces.delete(ns) },
     bind: (ns) => (key) => {
       const dicts = namespaces.get(ns)

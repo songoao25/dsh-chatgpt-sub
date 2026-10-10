@@ -10,17 +10,13 @@
 
 ### 方式一：在 DSH 插件页添加（推荐；桌面端唯一方式）
 
-打开 DSH 的 **插件 → 添加插件**，在「包名或地址」里填包名（推荐）或仓库地址，二选一：
-
-```
-dsh-chatgpt-sub
-```
+打开 DSH 的 **插件 → 添加插件**，在「包名或地址」里填仓库地址（当前推荐）：
 
 ```
 https://github.com/SONGOAO25/dsh-chatgpt-sub
 ```
 
-填包名安装 npm 上的**发布版本**；填仓库地址安装仓库根（`lib/` 已入库，所以填地址安装**不跑构建、不会弹「待批准的构建脚本」**）。同一个框也接受：
+2026-10-10 查询 npm 公开仓库时未找到 `dsh-chatgpt-sub`，目前请用仓库地址。确认 npm 发布成功后才可按包名安装。填仓库地址安装仓库根（`lib/` 已入库，所以填地址安装**不跑构建、不会弹「待批准的构建脚本」**）。同一个框也接受：
 
 - 本仓库工作副本的绝对路径 —— 用于开发（会产生 `link:` 安装）。
 
@@ -31,7 +27,7 @@ https://github.com/SONGOAO25/dsh-chatgpt-sub
 用你实际启动的 profile（`dsh web` 启动的是 `web`）：
 
 ```bash
-# npm 发布版本（推荐）
+# npm 发布成功后才可使用（当前请用下方仓库地址）
 dsh plugin --profile web add dsh-chatgpt-sub
 
 # 或仓库默认分支（不跑构建，lib/ 已入库）
@@ -89,7 +85,7 @@ dsh --profile web --dump-config | grep dsh-chatgpt-sub
 
 | 你的安装方式 | 更新命令 |
 |---|---|
-| 包名 `dsh-chatgpt-sub`（插件页或命令行） | 再执行一次同样的安装（自动取 npm 最新发布版本），然后重启 DSH |
+| 包名 `dsh-chatgpt-sub`（插件页或命令行） | 确认包已公开发布后，再执行一次同样的安装，然后重启 DSH |
 | 仓库地址（插件页或命令行） | 再执行一次同样的地址安装（取仓库默认分支最新提交），然后重启 DSH |
 | `link:`（一键脚本或本地代码） | 见下方三步 |
 
@@ -130,7 +126,7 @@ dsh plugin --profile web remove dsh-chatgpt-sub
 | 现象 | 原因与处理 |
 |---|---|
 | 插件详情里没有配置页 | ① 没重启：需重启 DSH；② 装错 profile：确认启动用的 profile 与安装目标一致；③ `dsh --profile web --dump-config` 里没有 dsh-chatgpt-sub：重新执行安装 |
-| 插件页或命令行报「未找到相关插件」 | 包名拼错了。发布版本的正确包名是 `dsh-chatgpt-sub`；或者改用仓库地址安装 |
+| 插件页或命令行报「未找到相关插件」 | 先检查包名；npm 尚未发布或暂不可用时，改用仓库地址安装 |
 | 插件页报「这个包没有声明组合包」 | 装到的是一个「仓库根不是包」的仓库。本仓库根目录一直是包；请确认填的是本仓库，并用包含最新提交的地址 |
 | 插件页提示「有依赖的安装脚本需要你允许」/「待批准的构建脚本」 | 装到的清单里声明了 `prepare` / `prepack`（本仓库当前清单没有，只有 `prepublishOnly`）。用最新提交的仓库地址重装；确实需要放行时，按提示把 pnpm 打印的那一行加进 profile 的 `pnpm-workspace.yaml` 的 `allowBuilds` 再重试 |
 | 命令行报 `profile "desktop" is managed exclusively by the Electron application` | 桌面端客户端的 profile 不能用 CLI 改：请在客户端 **插件 → 添加插件** 里安装/卸载 |
@@ -144,4 +140,4 @@ dsh plugin --profile web remove dsh-chatgpt-sub
 
 ## 与其他插件的关系
 
-- **[Bottom Info Bar](https://github.com/SONGOAO25/dsh-bottom-info-bar)**：信息栏插件只读本插件维护的令牌，在底部信息栏显示 ChatGPT 额度（5 小时/周/月窗口与重置时间）。两者可独立安装；信息栏的 ChatGPT 额度显示需要本插件先绑定。
+- **[Bottom Info Bar](https://github.com/SONGOAO25/dsh-bottom-info-bar)**：信息栏插件只读本插件维护的登录信息，在底部信息栏显示可读取的 ChatGPT 额度窗口与重置时间。两者可独立安装；信息栏的 ChatGPT 额度显示需要本插件先绑定。
