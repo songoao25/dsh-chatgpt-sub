@@ -2,6 +2,13 @@
 
 本项目的版本记录遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.0](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.4.0...v0.5.0) (2026-10-10)
+
+
+### Features
+
+* multilingual subscription settings and package updates ([#34](https://github.com/songoao25/dsh-chatgpt-sub/issues/34)) ([a818dd8](https://github.com/songoao25/dsh-chatgpt-sub/commit/a818dd8378976f7d9a46a208c9492d01d0657702))
+
 ## [0.4.0](https://github.com/songoao25/dsh-chatgpt-subscription/compare/v0.3.3...v0.4.0) (2026-09-26)
 
 
