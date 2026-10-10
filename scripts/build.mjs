@@ -3,7 +3,7 @@
 // 2) wrap src/client-bundle.js -> lib/client.js（client-modules 经典脚本 bundle）
 //    包装形态与官方 client 包一致：window.__ModuleLoader__.load({ id, factory })
 // 用法：node scripts/build.mjs（package.json build/prepack 均调用）
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { LOCALES } from '../src/locales.js'
@@ -14,6 +14,8 @@ const libDir = join(root, 'lib')
 
 await rm(libDir, { recursive: true, force: true })
 await mkdir(libDir, { recursive: true })
+
+for (const file of ['self-update.js', 'version.js']) await copyFile(join(root, 'src', file), join(libDir, file))
 
 // 1) host（ESM，原样复制，加文件头注释）
 await writeFile(join(libDir, 'locales.js'), 'export const LOCALES = ' + JSON.stringify(LOCALES) + '\n')

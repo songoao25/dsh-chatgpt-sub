@@ -13,6 +13,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
 
+const { LOCALES } = await import('../src/locales.js')
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const readJson = (relative) => JSON.parse(readFileSync(join(root, relative), 'utf8'))
@@ -21,7 +22,7 @@ const hostSource = readFileSync(join(root, 'src', 'host.js'), 'utf8')
 const artifact = readFileSync(join(root, 'lib', 'client.js'), 'utf8')
 
 // ---------- 1. locale 文件：DSH 内置语言只有 zh / en，两侧必须一一对应 ----------
-assert.deepEqual(readdirSync(join(root, 'locale')).sort(), ['en.json', 'zh.json'],
+assert.deepEqual(readdirSync(join(root, 'locale')).sort(), Object.keys(LOCALES).map(language => language + '.json').sort(),
   'locale/ must carry exactly the two DSH built-in languages (zh, en)')
 const en = readJson('locale/en.json')
 const zh = readJson('locale/zh.json')
@@ -44,7 +45,6 @@ assert.equal(pkg.description, en.meta.description,
   'package.json description is the English fallback and must equal locale/en.json meta.description')
 
 // ---------- 3. client half 的字典 ----------
-const { LOCALES } = await import('../src/locales.js')
 const zhKeys = Object.keys(LOCALES.zh)
 const enKeys = Object.keys(LOCALES.en)
 assert.deepEqual(enKeys.filter((key) => !zhKeys.includes(key)), [], 'every English key needs a Chinese one')
@@ -162,6 +162,8 @@ function textsOf(node, sink) {
   const out = sink || []
   if (typeof node === 'string') out.push(node)
   else if (typeof node === 'function') textsOf(node(node.props), out)
+  else if (Array.isArray(node)) for (const child of node) textsOf(child, out)
+  else if (node && node.tag === 'option' && node.props.value !== 'auto') return out // native-language option labels are intentional
   else if (node && typeof node.tag === 'function') textsOf(node.tag(node.props), out)
   else if (node && node.children) for (const child of node.children) textsOf(child, out)
   return out

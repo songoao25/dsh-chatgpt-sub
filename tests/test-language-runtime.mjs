@@ -2,10 +2,10 @@ import assert from 'node:assert/strict';
 import { createLanguageRuntime } from '../src/language-runtime.js';
 
 const dictionaries = {
-  en: { name: 'Hello {name}', 'language.saveFailed': 'Storage failed' },
+  en: { 'meta.description': 'English description', name: 'Hello {name}', 'language.saveFailed': 'Storage failed' },
   zh: { name: '你好 {name}' },
   'zh-hant': { name: '您好 {name}' },
-  es: { name: 'Hola {name}' },
+  es: { 'meta.description': 'Descripción en español', name: 'Hola {name}' },
   pt: { name: 'Olá {name}' },
 };
 function environment(language = 'pt-BR') {
@@ -64,4 +64,23 @@ failed.dispose();
 const broken = createLanguageRuntime('broken', dictionaries, { bind() { throw new Error('injection unavailable'); }, getSnapshot() { throw new Error('not ready'); }, subscribe() { throw new Error('unavailable'); } }, environment('zh-TW'));
 assert.equal(broken.t('name', { name: 'Ana' }), '您好 Ana', 'unavailable host services preserve a working translation');
 broken.dispose();
+const crossTabEnv = environment('en');
+const crossTab = createLanguageRuntime('tabs', dictionaries, service, crossTabEnv);
+let tabChanges = 0;
+crossTab.subscribe(() => tabChanges++);
+crossTabEnv.localStorage.setItem('tabs:language', 'pt');
+crossTabEnv.events.get('storage')({ key: 'other:language' });
+assert.equal(tabChanges, 0, 'unrelated plugin preferences are ignored');
+crossTabEnv.events.get('storage')({ key: 'tabs:language' });
+assert.equal(crossTab.locale(), 'pt', 'another tab can update the preference');
+crossTabEnv.localStorage.removeItem('tabs:language');
+crossTabEnv.events.get('storage')({ key: null });
+assert.equal(crossTab.preference(), 'auto', 'storage clear returns to following DSH');
+crossTab.dispose();
+assert.equal(crossTabEnv.events.size, 0, 'disposal removes the storage listener');
+assert.equal(hostListeners.size, 0, 'disposal removes the DSH subscription');
+const legacy = createLanguageRuntime('legacy', dictionaries, { bind: () => key => dictionaries.es[key] || key }, environment('en'));
+assert.equal(legacy.t('name', { name: 'Ana' }), 'Hola Ana');
+assert.equal(legacy.locale(), 'es', 'legacy UI and OAuth use the same resolved language');
+legacy.dispose();
 console.log('language runtime behavior: PASS');

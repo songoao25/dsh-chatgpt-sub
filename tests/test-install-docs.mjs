@@ -111,6 +111,6 @@ assert.ok(/dsh-chatgpt-sub/.test(docs['docs/INSTALL.md']),
   'docs/INSTALL.md must name the npm package for the plugin-page install box')
 
 // locale 字典是插件页显示的元信息来源，安装契约测试顺手钉住它没被删
-assert.deepEqual(readdirSync(join(root, 'locale')).sort(), ['en.json', 'zh.json'], 'locale/ must keep the two DSH languages')
+assert.deepEqual(readdirSync(join(root, 'locale')).sort(), Object.keys((await import('../src/locales.js')).LOCALES).map(language => language + '.json').sort(), 'locale/ must expose every built-in plugin language')
 
 console.log('安装方式契约测试全部通过')

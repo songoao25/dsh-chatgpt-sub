@@ -1,14 +1,74 @@
 // dsh-chatgpt-sub — host half（静态 bundle 形态）
 // 业务：ChatGPT 订阅官方 OAuth 绑定 + 令牌看护 + openai-codex 路由注册
 // 独立插件：绑定/令牌管理；dsh-bottom-info-bar 只读令牌显示额度
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 import { createHash, randomBytes } from 'node:crypto'
 import { createServer } from 'node:http'
 import { LOCALES } from './locales.js'
+import { createSelfUpdater } from './self-update.js'
+import { PACKAGE_DIR, UPDATE_REGISTRY_URL, compareSemver, packageVersion } from './version.js'
+
+const UPDATE_CHECK_TIMEOUT_MS = 5000
+const UPDATE_LATEST_TTL_MS = 15 * 60 * 1000
+const UPDATE_LATEST_RETRY_MS = 60 * 1000
+
+// TTL 可被测试覆盖（生产不设置）：0 表示每次都重查。
+function updateLatestTtlMs() {
+  const raw = Number(process.env.DSH_CHATGPT_UPDATE_TTL_MS)
+  return Number.isFinite(raw) && raw >= 0 ? raw : UPDATE_LATEST_TTL_MS
+}
+
+const updateLatestCache = { value: null, expiresAt: 0, pending: null }
+
+// 查一次 npm。任何失败都返回 null —— 提醒宁可不显示，也不误报。
+function fetchLatestVersion() {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), UPDATE_CHECK_TIMEOUT_MS)
+  return fetch(UPDATE_REGISTRY_URL, {
+    headers: { accept: 'application/json' },
+    signal: controller.signal,
+  }).then((response) => (response.ok ? response.json() : null))
+    .then((body) => (body && typeof body.version === 'string' ? body.version : null))
+    .catch(() => null)
+    .finally(() => clearTimeout(timer))
+}
+
+// 读最新版本：命中缓存直接返回；过期则重查（并发调用共用同一次请求）。
+// 查失败时保留上一次的已知值（网络抖动不该让提醒闪烁），并把下次重试提前到 1 分钟。
+function latestVersion() {
+  const now = Date.now()
+  if (now < updateLatestCache.expiresAt) return Promise.resolve(updateLatestCache.value)
+  if (updateLatestCache.pending) return updateLatestCache.pending
+  const pending = fetchLatestVersion().then((value) => {
+    if (value !== null) updateLatestCache.value = value
+    updateLatestCache.expiresAt = Date.now() + (value !== null ? updateLatestTtlMs() : UPDATE_LATEST_RETRY_MS)
+    return updateLatestCache.value
+  }).finally(() => { updateLatestCache.pending = null })
+  updateLatestCache.pending = pending
+  return pending
+}
+
+function dshHomeDir() { return process.env.DSH_HOME || join(homedir(), '.dsh') }
+function isLoadedAsProfilePlugin() {
+  try {
+    const real = realpathSync(PACKAGE_DIR)
+    const profilesRoot = realpathSync(join(dshHomeDir(), 'profiles')) + sep
+    // Windows 与 macOS 默认文件系统不区分大小写：盘符或目录大小写不一致
+    // （如 C:\ 与 c:\）时逐字比较会误判为「非 profile 安装」，自更新被静默关闭。
+    // 平台分支只在这一处做一次，调用方只读布尔结果。
+    if (process.platform === 'win32' || process.platform === 'darwin') {
+      return real.toLowerCase().startsWith(profilesRoot.toLowerCase())
+    }
+    return real.startsWith(profilesRoot)
+  } catch { return false }
+}
+
 
 const DATA_DIR = process.env.DSH_CHATGPT_DATA_DIR || join(homedir(), '.dsh', 'dsh-chatgpt-sub')
+// Update state follows this DSH installation; existing binding files keep their established location.
+const UPDATE_DATA_DIR = process.env.DSH_CHATGPT_DATA_DIR || join(dshHomeDir(), 'dsh-chatgpt-sub')
 // 一次性迁移：0.3.x 时包名是 dsh-chatgpt-subscription，绑定标记目录随包名升级。
 // 默认路径下旧目录存在、新目录不存在时整体搬移（绑定标记跟着走，用户不用重新绑定）；
 // 显式指定 DSH_CHATGPT_DATA_DIR 的是开发/测试隔离场景，一律不动。
@@ -533,6 +593,71 @@ function respondOAuthPage(res, status, key, language) {
 export default {
   inject: ['credentials', 'settings', 'timer', 'shell'],
   apply(ctx) {
+    const SELF_UPDATE_ENABLED = process.env.DSH_CHATGPT_SELF_UPDATE !== 'off' && isLoadedAsProfilePlugin()
+    const SELF_UPDATE_DELAY_MS = 8000
+    // 此次 DSH 启动期间只要用户进入过插件设置页，自动更新就留到下次重启。
+    // 页面里点「检查更新」仍只检查；安装必须由确认动作触发。
+    let updatePageVisited = false
+    let selfUpdater = null
+    if (SELF_UPDATE_ENABLED) {
+      selfUpdater = createSelfUpdater({
+        packageDir: PACKAGE_DIR,
+        dataDir: UPDATE_DATA_DIR,
+        runningVersion: packageVersion(),
+        autoInstallAllowed: function () { return !updatePageVisited },
+        log: function (message) { try { console.warn('[dsh-chatgpt-sub] ' + message) } catch (err) { /* 日志失败无害 */ } },
+      })
+      selfUpdater.loadState()
+      // 定时器随插件生命周期清理：宿主 ctx 提供 effect；桩 ctx / 老宿主没有时退回直接挂定时器
+      // （unref 保证不会拖住进程退出）。读 ctx.effect 一律包在 try 里 —— cordis 4 的 Context 是
+      // Proxy，某些形态下读未声明的属性会抛 "without inject"，这一点本仓库已踩过三次。
+      const scheduleSelfUpdate = function () {
+        const timer = setTimeout(function () {
+          if (updatePageVisited) return
+          selfUpdater.run().catch(function () { /* 状态已落盘，无需上抛 */ })
+        }, SELF_UPDATE_DELAY_MS)
+        if (timer && typeof timer.unref === 'function') timer.unref()
+        return function () { clearTimeout(timer) }
+      }
+      try {
+        if (typeof ctx.effect === 'function') ctx.effect(scheduleSelfUpdate, 'dsh-chatgpt-sub: self update')
+        else scheduleSelfUpdate()
+      } catch (err) {
+        try { scheduleSelfUpdate() } catch (err2) { /* 定时器都挂不上就放弃自动更新，信息栏照常 */ }
+      }
+    }
+    // 自更新被禁用（测试隔离或用户显式关闭）时，RPC 仍要给出结构完整的只读状态，绝不让 UI 崩。
+    function selfUpdateState() {
+      if (selfUpdater) return selfUpdater.getState()
+      const current = packageVersion()
+      return {
+        autoUpdate: false, pendingVersion: null, updatedAt: null, lastError: null, lastCheckAt: null,
+        runningVersion: current, diskVersion: current, updated: false, disabled: true, lastErrorKind: null,
+      }
+    }
+    // ---------- 更新状态的唯一出口（2026-09-26）----------
+    // 所有「版本与更新」相关 RPC 都返回这一份 payload，形状完全一致。
+    // 为什么必须只有一个出口：客户端以前拿到动作结果后会把它与轮询到的状态「拼」在一起
+    // （Object.assign(prev, res)），而动作结果少几个字段 —— 于是点完检查更新，结论行还会说
+    // 「已是最新」，要等最多 15 秒的下一次轮询才对上（界面在说谎）。
+    // 现在客户端只认这一个形状，动作完成后重新读一次即可，不存在半状态。
+    async function updateStatePayload() {
+      const latest = await latestVersion()
+      const current = packageVersion()
+      const state = selfUpdateState()
+      // 方向由 host 判定（客户端不做版本比较）：'update' 说明磁盘已是新版、'rollback' 说明用户
+      // 回滚过、磁盘比运行版本旧，两者都只有重启才生效，但文案要分开。
+      // 判据是「两者不等」而不是「disk 更高」：回滚之后 disk 低于 running，同样只有重启才生效。
+      const delta = compareSemver(current, state.runningVersion)
+      return Object.assign({}, state, {
+        latest: latest,
+        diskVersion: current,
+        available: !!latest && compareSemver(latest, current) > 0,
+        pendingRestart: delta !== 0,
+        restartDirection: delta > 0 ? 'update' : (delta < 0 ? 'rollback' : null),
+      })
+    }
+
     mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 })
     chmodSync(DATA_DIR, 0o700)
     // ---------- 状态 ----------
@@ -936,11 +1061,63 @@ export default {
     // ---------- RPC 路由（webServer HTTP，JSON 进出，使用宿主认证边界） ----------
     const ROUTE_PREFIX = '/_dsh/dsh-chatgpt-sub';
     const ROUTES = {
+      // 设置页「版本与更新」区读的完整状态
+      getUpdateState: async function () {
+        return updateStatePayload()
+      },
+      // 检查更新（只读）：只问 npm「有没有更高的版本」，然后回报。
+      // 绝不下载、绝不替换包文件 —— 这是「检查更新」按钮唯一该做的事。
+      // 走引擎而不是读 host 的 TTL 缓存：用户点了按钮就必须真去问一次（缓存命中时那次
+      // 查询可能要等 15 分钟才过期，等于按钮什么都没干）。
+      checkUpdate: async function () {
+        if (selfUpdater) {
+          const state = await selfUpdater.run({ mode: 'check', manual: true })
+          if (state && typeof state.latest === 'string') { updateLatestCache.value = state.latest; updateLatestCache.expiresAt = Date.now() + updateLatestTtlMs() }
+          // 顺手把这次问到的版本灌进缓存，让信息栏与后续状态读取立刻与检查结果一致。
+        }
+        return updateStatePayload()
+      },
+      enterUpdatePage: async function () {
+        updatePageVisited = true
+        return { deferredUntilRestart: true }
+      },
+      // 安装（唯一的写动作）：由用户在手动方式下点「更新到 X」、或点「允许更新到 X」触发。
+      // 全自动模式不需要它 —— 那条路由启动流程自己走 install。
+      // force=true 表示「我明确要装这个版本」，用于解除回滚后的暂缓（holdVersion）。
+      installUpdate: async function (args) {
+        if (selfUpdater) {
+          const force = !!(args && typeof args === 'object' && args.force === true)
+          const state = await selfUpdater.run({ mode: 'install', manual: true, force: force })
+          if (state && typeof state.latest === 'string') { updateLatestCache.value = state.latest; updateLatestCache.expiresAt = Date.now() + updateLatestTtlMs() }
+        }
+        return updateStatePayload()
+      },
+      // 旧客户端页面（升级后还没重启、WebView 里仍是上一版界面）调用的老名字。
+      // 也只执行检查，绝不让旧页的「检查更新」在无确认时替换文件。
+      runUpdateCheck: async function (args) {
+        return ROUTES.checkUpdate(args)
+      },
+      // 更新方式（全自动 / 手动）。手动方式下自动流程只查不装，必须由用户点「更新到 X」。
+      setUpdateAuto: async function (args) {
+        if (selfUpdater) {
+          const enabled = !(args && args.enabled === false)
+          selfUpdater.setAutoUpdate(enabled)
+        }
+        return updateStatePayload()
+      },
+      // 回滚到最近一次更新的备份（新版启动异常时的人工兜底）。
+      // 结果里额外带回 rollback 结论：失败（没有备份 / 没有可回滚版本）必须让界面说出来，
+      // 不能点一下什么都没发生。
+      rollbackUpdate: async function () {
+        const result = selfUpdater ? selfUpdater.rollback() : { restored: false, reason: 'disabled' }
+        return Object.assign({}, await updateStatePayload(), { rollback: result })
+      },
+
       getCodexBridgeStatus: function () { return getCodexBridgeStatusRpc(); },
       startCodexOAuth: function (args) { return startCodexOAuthRpc(args); },
       unbindCodex: function () { return unbindCodexRpc(); },
     };
-    const MUTATING = { startCodexOAuth: true, unbindCodex: true };
+    const MUTATING = { startCodexOAuth: true, unbindCodex: true, checkUpdate: true, enterUpdatePage: true, installUpdate: true, runUpdateCheck: true, setUpdateAuto: true, rollbackUpdate: true };
 
     function readBody(req, maxBytes) {
       return new Promise(function (resolve, reject) {

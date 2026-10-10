@@ -47,9 +47,13 @@ Open **Plugins → ChatGPT Subscription** and choose **Sign in with ChatGPT**. C
 
 Authorization and model requests communicate with official OpenAI endpoints. Sign-in tokens are saved in the standard local `~/.codex/auth.json` file with owner-only permissions and synchronized into DSH's credential store. Signing in can update that shared file, so it can affect which account Codex CLI uses. Tokens are transmitted to OpenAI for authorized requests; they are not written to plugin logs.
 
-Unbinding and uninstalling preserve `~/.codex/auth.json` and remove the plugin's binding and managed DSH entries. The plugin refreshes sign-in automatically, but **plugin updates are manual**: install the same repository address again and restart DSH. Local checkout installs need a code update and rebuild; see [docs/INSTALL.md](docs/INSTALL.md).
+Unbinding and uninstalling preserve `~/.codex/auth.json` and remove the plugin's binding and managed DSH entries. The plugin refreshes sign-in automatically. Under **Version and updates**, automatic updates (default) check npm when DSH starts, verify and replace the plugin files, then take effect after a restart. Manual mode checks without installing; installation asks for confirmation. Failed updates restore the previous files, and settings offer rollback when needed. Sign-in data is preserved. Local checkout and linked installs require a code update and rebuild; see [docs/INSTALL.md](docs/INSTALL.md). Updates become available after the npm package is published.
 
 Remove the plugin from the desktop app's **Plugins** page, or use `dsh plugin --profile web remove dsh-chatgpt-sub` for the CLI web profile. Do not include sign-in files, credentials, or account details in bug reports.
+
+## Languages
+
+The plugin includes English, Simplified and Traditional Chinese, Japanese, Korean, Spanish, Portuguese, French, German, Italian, Russian, Hindi and Indonesian. It follows DSH’s language by default. Choose **Language** on this plugin’s settings page to use a different language independently; the choice is saved in this browser. Regional variants such as Spanish (Mexico) and Portuguese (Brazil) use the corresponding built-in language. Unsupported languages fall back to English.
 
 ## Development
 

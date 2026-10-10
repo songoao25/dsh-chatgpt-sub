@@ -1,12 +1,12 @@
 // dsh-chatgpt-sub — client half：插件详情页的订阅配置
-// 文案全部收在下面这份 zh / en 字典里，注册进 DSH 的 locale 服务后跟随界面语言。
+// 文案全部收在内置多语言字典里，注册进 DSH 的 locale 服务后跟随界面语言。
 // 铁律：取文案绝不能让渲染抛错——配置页整块消失过一次，根因就是未在 inject 里声明 locale 就访问
 // ctx.locale（cordis 对未声明的服务属性直接抛 cannot get property "locale" without inject）。
 const LOCALE_NAMESPACE = 'dsh-chatgpt-sub';
 const LOCALES = /*__LOCALES__*/{};
 /*__LANGUAGE_RUNTIME__*/
 module.exports = {
-  // slots：配置页槽位；locale：页面文案的中英字典（不声明就用不了 ctx.locale）
+  // slots：配置页槽位；locale：页面文案跟随宿主（不声明就用不了 ctx.locale）
   inject: ['slots', 'locale'],
   async apply(ctx) {
     // slots 服务等待就绪（最多 18s）
@@ -24,7 +24,7 @@ module.exports = {
     const PREFIX = '/_dsh/dsh-chatgpt-sub';
     // DSH 0.1.7 desktop host enforces POST for state-changing RPCs, even
     // when the call has no JSON arguments. Keep read-only status polling GET.
-    const MUTATING_RPC = { startCodexOAuth: true, unbindCodex: true };
+    const MUTATING_RPC = { startCodexOAuth: true, unbindCodex: true, checkUpdate: true, enterUpdatePage: true, installUpdate: true, runUpdateCheck: true, setUpdateAuto: true, rollbackUpdate: true };
     function rpc(method, args) {
       const url = PREFIX + '/' + method;
       const controller = new AbortController();
@@ -158,6 +158,9 @@ module.exports = {
         .cgpt-alert--error { display: flex; align-items: center; gap: 10px; color: var(--dsw-alias-state-error-primary, #d92d20); overflow-wrap: anywhere; white-space: pre-wrap; }
         .cgpt-alertText { flex: 1 1 auto; min-width: 0; }
         .cgpt-note { width: 100%; margin: 0; padding: 0; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+        .cgpt-updates { width: 100%; min-width: 0; border-top: 1px solid var(--dsw-alias-border-primary, rgba(128,128,128,0.2)); padding-top: 16px; }
+        .cgpt-updateMode { display: flex; flex-wrap: wrap; gap: 4px; }
+        .cgpt-btn[aria-checked="true"] { background: var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,0.08)); border-color: var(--dsw-alias-brand-primary); }
         .cgpt-loading { margin: 0; padding: 0; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
         @media (max-width: 600px) { .cgpt-row { align-items: flex-start; } .cgpt-controls { justify-content: flex-start; margin-left: 0; } }
         @media (prefers-reduced-motion: reduce) { .cgpt-btn { transition: none; } }
@@ -175,6 +178,8 @@ module.exports = {
           variant: props.variant || 'outline',
           size: 'sm',
           className: className,
+          role: props.role,
+          'aria-checked': props.checked,
           disabled: props.disabled,
           onClick: props.onClick,
           key: props.key,
@@ -183,10 +188,113 @@ module.exports = {
       return h('button', {
         type: 'button',
         className: className,
+        role: props.role,
+        'aria-checked': props.checked,
         disabled: props.disabled,
         onClick: props.onClick,
         key: props.key,
       }, props.children);
+    }
+
+    function SubscriptionUpdates() {
+      var statePair = React.useState(null), state = statePair[0], setState = statePair[1];
+      var phasePair = React.useState(null), phase = phasePair[0], setPhase = phasePair[1];
+      var errorPair = React.useState(null), error = errorPair[0], setError = errorPair[1];
+      var active = React.useRef(false);
+      var busy = React.useRef(false);
+      var requestSequence = React.useRef(0);
+      function load() {
+        var sequence = ++requestSequence.current;
+        return rpc('getUpdateState').then(function (result) {
+          if (active.current && sequence === requestSequence.current) { setState(result); setError(null); }
+          return result;
+        }).catch(function () {
+          if (active.current && sequence === requestSequence.current) setError('ui.updateHostOutdated');
+          return null;
+        });
+      }
+      React.useEffect(function () {
+        active.current = true;
+        rpc('enterUpdatePage').catch(function () {});
+        load();
+        var timer = setInterval(function () { if (!busy.current) load(); }, 15000);
+        return function () { active.current = false; clearInterval(timer); };
+      }, []);
+      function action(method, args, nextPhase) {
+        if (!active.current || busy.current) return Promise.resolve(null);
+        requestSequence.current++;
+        busy.current = true; setPhase(nextPhase); setError(null);
+        return rpc(method, args).then(function (result) {
+          if (active.current) {
+            setState(result);
+            if (result.rollback && result.rollback.restored !== true) setError('ui.updateRollbackFailed');
+          }
+          return result;
+        }).catch(function () {
+          if (active.current) setError('ui.updateFailed');
+          return null;
+        }).finally(function () { busy.current = false; if (active.current) setPhase(null); });
+      }
+      function confirmInstall(version) {
+        return typeof version === 'string' && version.length > 0 && confirm(t('ui.updateConfirm', { version: version }));
+      }
+      function check() {
+        action('checkUpdate', null, 'check').then(function (result) {
+          if (active.current && result && result.available && !result.pendingRestart && result.holdVersion !== result.latest && confirmInstall(result.latest)) {
+            action('installUpdate', null, 'install');
+          }
+        });
+      }
+      var content = [];
+      function row(key, title, description, controls) {
+        return h('div', { className: 'cgpt-row', key: key },
+          h('div', { className: 'cgpt-rowText' },
+            title ? h('div', { className: 'cgpt-rowTitle' }, title) : null,
+            description ? h('div', { className: 'cgpt-rowDesc' }, description) : null),
+          controls ? hList('div', { className: 'cgpt-controls' }, controls) : null);
+      }
+      var shown = function (version) { return version || t('ui.versionUnknown'); };
+      if (state) {
+        var latest = state.latest;
+        var held = state.holdVersion && state.holdVersion === latest;
+        var statusText = t(latest ? 'ui.updateUpToDate' : 'ui.updateErrorCheckFailed');
+        if (state.disabled) statusText = t('ui.updateDisabled');
+        else if (phase === 'install') statusText = t('ui.updateInstalling', { version: shown(latest) });
+        else if (state.restartDirection === 'update') statusText = t('ui.updatePendingRestart', { version: shown(state.diskVersion) });
+        else if (state.restartDirection === 'rollback') statusText = t('ui.updateRolledBack', { version: shown(state.diskVersion) });
+        else if (state.lastError) statusText = t('ui.updateFailed');
+        else if (held) statusText = t('ui.updateHeld', { version: state.holdVersion });
+        else if (state.available && latest) statusText = t('ui.updateAvailableNow', { version: latest });
+        var facts = [t('ui.versionRunning', { version: shown(state.runningVersion) }), t('ui.versionLatest', { version: shown(latest) })];
+        if (state.lastCheckAt) {
+          var minutes = Math.max(0, Math.floor((Date.now() - state.lastCheckAt) / 60000));
+          var relative = minutes < 1 ? t('ui.timeJustNow') : minutes < 60 ? t('ui.timeMinutesAgo', { n: minutes }) : minutes < 1440 ? t('ui.timeHoursAgo', { n: Math.floor(minutes / 60) }) : t('ui.timeDaysAgo', { n: Math.floor(minutes / 1440) });
+          facts.push(t('ui.versionLastCheck', { time: relative }));
+        }
+        var buttons = state.disabled ? null : [cgptButton({ key: 'check', disabled: !!phase, onClick: check, children: t(phase === 'check' ? 'ui.updateChecking' : 'ui.updateCheckNow') })];
+        if (buttons && state.available && latest && !held && !state.pendingRestart) buttons.push(cgptButton({ key: 'install', disabled: !!phase, onClick: function () { if (confirmInstall(latest)) action('installUpdate', null, 'install'); }, children: t('ui.updateInstallNow', { version: latest }) }));
+        content.push(row('state', statusText, state.disabled ? t('ui.updateDisabledWhy') : facts.join(' · '), buttons));
+        if (!state.disabled && state.lastError) {
+          var errors = { 'incomplete-download': 'ui.updateErrorIncompleteDownload', 'integrity-mismatch': 'ui.updateErrorIntegrityMismatch', 'download-failed': 'ui.updateErrorDownloadFailed', 'too-large': 'ui.updateErrorTooLarge', 'payload-mismatch': 'ui.updateErrorPayloadMismatch', 'payload-unsafe': 'ui.updateErrorPayloadUnsafe', 'check-failed': 'ui.updateErrorCheckFailed' };
+          content.push(row('failure', null, t(errors[state.lastErrorKind] || 'ui.updateErrorUnknown')));
+        }
+        if (!state.disabled) {
+          content.push(row('mode', t('ui.autoUpdateTitle'), t(state.autoUpdate === false ? 'ui.updateModeManualDesc' : 'ui.updateModeAutoDesc'), [
+            h('div', { className: 'cgpt-updateMode', role: 'radiogroup', 'aria-label': t('ui.autoUpdateTitle'), key: 'modes' },
+              ['auto', 'manual'].map(function (mode) { return cgptButton({ key: mode, disabled: !!phase, role: 'radio', checked: (state.autoUpdate === false ? 'manual' : 'auto') === mode, onClick: function () { action('setUpdateAuto', { enabled: mode === 'auto' }, 'mode'); }, children: t(mode === 'auto' ? 'ui.updateModeAuto' : 'ui.updateModeManual') }); }))
+          ]));
+          var rollback = state.restartDirection === 'update' || !!state.lastError;
+          if (rollback || held) content.push(row('fallback', null, t(rollback ? 'ui.updateFallbackWhy' : 'ui.updateHoldWhy'), [
+            rollback ? cgptButton({ key: 'rollback', disabled: !!phase, onClick: function () { action('rollbackUpdate', null, 'rollback'); }, children: t('ui.updateRollback') }) : null,
+            held ? cgptButton({ key: 'force', disabled: !!phase, onClick: function () { if (confirmInstall(state.holdVersion)) action('installUpdate', { force: true }, 'install'); }, children: t('ui.updateAllowHeld', { version: state.holdVersion }) }) : null,
+          ]));
+        }
+      } else content.push(h('p', { className: 'cgpt-loading', key: 'loading' }, t(error ? 'ui.versionUnavailable' : 'ui.loading')));
+      if (error) content.push(h('p', { className: 'cgpt-alert cgpt-alert--error', role: 'alert', key: 'error' }, t(error)));
+      return h('section', { className: 'cgpt-updates', 'aria-labelledby': 'cgpt-update-title' },
+        h('h2', { id: 'cgpt-update-title', className: 'cgpt-rowTitle' }, t('ui.versionAndUpdateTitle')),
+        h('p', { className: 'cgpt-rowDesc' }, t('ui.versionAndUpdateDesc')),
+        hList('div', { className: 'cgpt-list' }, content));
     }
 
     // ---------- 插件配置页组件 ----------
@@ -365,6 +473,7 @@ module.exports = {
         hList('div', { className: 'cgpt-list' }, rows),
         alerts.length > 0 ? hList('div', { className: 'cgpt-alerts' }, alerts) : null,
         languageErrorState[0] ? h('p', { className: 'cgpt-alert cgpt-alert--error', role: 'alert' }, languageErrorState[0]) : null,
+        h(SubscriptionUpdates),
         note,
       ]);
     }

@@ -28,7 +28,14 @@ export function createLanguageRuntime(namespace, dictionaries, service, environm
     try {
       const snapshot = service && (typeof service.getSnapshot === 'function' ? service.getSnapshot()
         : typeof service.getLocale === 'function' ? service.getLocale() : undefined);
-      return snapshot && typeof snapshot.active === 'string' ? snapshot.active : undefined;
+      if (snapshot && typeof snapshot.active === 'string') return snapshot.active;
+      // Older hosts expose only bind(): identify the locale using a unique built-in phrase.
+      if (bound) {
+        const description = bound('meta.description');
+        const language = Object.keys(dictionaries).find(id => dictionaries[id]['meta.description'] === description);
+        if (language) return language;
+      }
+      return undefined;
     } catch { return undefined; }
   }
   function browserLanguage() {
