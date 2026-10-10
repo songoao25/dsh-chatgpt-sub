@@ -6,7 +6,7 @@ on:
   pull_request:
   # 手动补跑：任何分支（含 main）都能手动跑一遍 CI。注意它不能顶替发布 PR 的
   # 必需检查——workflow_dispatch 的运行不挂在 PR 上；要解除 BLOCKED，得让 owner
-  # 重新触发 pull_request（gh pr close && gh pr reopen，见 AGENTS.md）。
+  # 重新触发 pull_request（gh pr close && gh pr reopen，见 CONTRIBUTING.md）。
   workflow_dispatch:
 
 jobs:
@@ -24,6 +24,6 @@ jobs:
       - name: Build
         run: npm run build
       - name: Verify generated bundle is committed
-        run: git diff --exit-code -- lib/index.js lib/client.js
+        run: git diff --exit-code -- lib locale
       - name: Run tests
         run: node tests/run-all.mjs

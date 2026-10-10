@@ -1,0 +1,68 @@
+name: Verify npm release
+
+# Verify metadata, latest and the downloadable archive after publication.
+# A timeout is incomplete verification and fails visibly; maintainers can rerun it.
+on:
+  workflow_run:
+    workflows: ['Publish NPM package']
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to verify (defaults to package.json)
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-npm-release
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Read back public npm availability
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # 发布 job 自己红的时候不必再补一刀 —— 那已经是可见的失败了。
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && (github.event.workflow_run.head_branch == 'main' || startsWith(github.event.workflow_run.head_branch, 'v'))) }}
+    steps:
+      # workflow_run 时按触发它的 ref 检出（版本号精确到刚发的那一次）；
+      # 手动触发使用所选分支。
+      - name: Check out release ref
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 20
+          # registry-url 会让 setup-node 写一份带 NODE_AUTH_TOKEN 占位的 .npmrc，
+          # 校正 latest 标签（npm dist-tag add）时要靠它认证。
+          registry-url: https://registry.npmjs.org
+
+      - name: Compute release age
+        id: age
+        shell: bash
+        run: |
+          # package.json 的最近一次提交时间用于判断发布等待时长。
+          epoch="$(git log -1 --format=%ct -- package.json)"
+          echo "release_epoch=$epoch" >> "$GITHUB_OUTPUT"
+          echo "release age: $(( $(date +%s) - epoch ))s"
+
+      # 读回校验：版本元数据 + latest 不落后 + tarball 完整性。
+      # 只有公开下载与完整性检查全部通过才放行。
+      - name: Read back public npm release
+        run: node scripts/verify-npm-publication.mjs
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_RELEASE_VERSION: ${{ github.event.inputs.version || '' }}
+          NPM_RELEASE_EPOCH: ${{ steps.age.outputs.release_epoch }}
+          # 发布刚结束时值得等一小会儿（典型 1~2 分钟就能确认）；
+          # 手动触发只检查一次。
+          NPM_VERIFY_WAIT_MS: ${{ github.event_name == 'workflow_run' && '600000' || '0' }}
+          # 只读验证，不自动更改 latest。
+          NPM_VERIFY_REPAIR_DIST_TAG: '0'

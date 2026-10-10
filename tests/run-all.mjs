@@ -6,6 +6,13 @@ import { dirname, join } from 'node:path'
 
 const root = dirname(fileURLToPath(new URL('../package.json', import.meta.url)))
 const files = [
+  'test-update-host.mjs',
+  'test-update-client.mjs',
+  'test-self-update.mjs',
+  'test-oauth-localization.mjs',
+  'test-npm-verification.mjs',
+  'test-multilingual.mjs',
+  'test-language-runtime.mjs',
   'test-alpha4-client-contract.mjs',
   'test-locale-copy.mjs',
   'test-install-docs.mjs',
@@ -16,7 +23,7 @@ const files = [
 let allPass = true
 for (const f of files) {
   console.log(`\n=== ${f} ===`)
-  const res = spawnSync(process.execPath, [join(root, 'tests', f)], { stdio: 'inherit', cwd: root })
+  const res = spawnSync(process.execPath, [join(root, 'tests', f)], { stdio: 'inherit', cwd: root, env: { ...process.env, DSH_CHATGPT_SELF_UPDATE: 'off' } })
   if (res.status !== 0) allPass = false
 }
 

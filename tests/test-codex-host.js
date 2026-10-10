@@ -337,7 +337,7 @@ function makeJwt(claims) {
   check('不再用桌面端转发时会被移除的 Origin 请求头做鉴权', !src.includes('DESKTOP_APP_ORIGIN') && !src.includes('function sameOrigin(req)'), true)
   check('ChatGPT 默认模型使用明确配置', src.includes('CODEX_DEFAULT_MODEL'), true)
   check('客户端 RPC 检查 HTTP 状态', clientSrc.includes("if (!r.ok) throw new Error"), true)
-  check('客户端对 OAuth 启动和解绑使用 POST', clientSrc.includes("MUTATING_RPC = { startCodexOAuth: true, unbindCodex: true }") && clientSrc.includes("method: mutating ? 'POST' : 'GET'"), true)
+  check('客户端对 OAuth 启动和解绑使用 POST', /const MUTATING_RPC = \{[^}]*startCodexOAuth: true,[^}]*unbindCodex: true/.test(clientSrc) && clientSrc.includes("method: mutating ? 'POST' : 'GET'"), true)
   check('客户端卸载清理授权轮询', clientSrc.includes('pollRef.current'), true)
   check('未绑定启动不主动注册 ChatGPT 路由', !src.includes('    ensureCodexRoute();\n    syncCodexToken();'), true)
   check('host 读 llm-pi-ai 一律经 readSettingsSection（0.1.7 起 settings.get 已被移除）',

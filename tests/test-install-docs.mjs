@@ -103,14 +103,14 @@ for (const [name, text] of Object.entries(docs)) {
     name + ' must present the bare package-name install command (the package is on npm)')
   assert.ok(!/dsh-chatgpt-sub@latest/.test(text),
     name + ' must not hand users an npm @latest install command (DSH takes a plain package name)')
-  // 不许再出现「不发布 npm」的旧说法——那已经和现实相反
-  assert.ok(!/not published to npm|不发布 npm|不在 npm 上|不发布 npm 包/.test(text),
-    name + ' must not claim the plugin is unpublished (it is on npm now)')
+  // 发布工作流存在不等于包已上架；文档须提供当前仓库地址和发布后的包名入口。
+  assert.ok(!/Yes — the package name|有，包名/.test(text),
+    name + ' must not assert npm availability without a verified publication')
 }
 assert.ok(/dsh-chatgpt-sub/.test(docs['docs/INSTALL.md']),
   'docs/INSTALL.md must name the npm package for the plugin-page install box')
 
 // locale 字典是插件页显示的元信息来源，安装契约测试顺手钉住它没被删
-assert.deepEqual(readdirSync(join(root, 'locale')).sort(), ['en.json', 'zh.json'], 'locale/ must keep the two DSH languages')
+assert.deepEqual(readdirSync(join(root, 'locale')).sort(), Object.keys((await import('../src/locales.js')).LOCALES).map(language => language + '.json').sort(), 'locale/ must expose every built-in plugin language')
 
 console.log('安装方式契约测试全部通过')

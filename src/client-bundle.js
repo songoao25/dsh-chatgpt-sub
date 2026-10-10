@@ -1,136 +1,12 @@
 // dsh-chatgpt-sub — client half：插件详情页的订阅配置
-// 文案全部收在下面这份 zh / en 字典里，注册进 DSH 的 locale 服务后跟随界面语言。
+// 文案全部收在内置多语言字典里，注册进 DSH 的 locale 服务后跟随界面语言。
 // 铁律：取文案绝不能让渲染抛错——配置页整块消失过一次，根因就是未在 inject 里声明 locale 就访问
 // ctx.locale（cordis 对未声明的服务属性直接抛 cannot get property "locale" without inject）。
 const LOCALE_NAMESPACE = 'dsh-chatgpt-sub';
-const LOCALES = {
-  zh: {
-    'meta.title': 'ChatGPT 订阅',
-    'meta.description': '用 ChatGPT 账号登录，在 DSH 里使用 ChatGPT 模型。',
-    'ui.loading': '加载中…',
-    'ui.loadFailed': '读不到状态，刷新页面重试。',
-    'ui.startFailed': '没法开始绑定：',
-    'ui.startError': '绑定时出错：',
-    'ui.unbindFailed': '解绑失败：',
-    'ui.unknownReason': '未知原因',
-    'ui.retry': '请重试',
-    'ui.bind': '绑定 ChatGPT 账号',
-    'ui.openingBrowser': '正在打开浏览器…',
-    'ui.rebind': '重新绑定',
-    'ui.unbind': '解绑',
-    'ui.unbindConfirm': '确定要解绑吗？\n\n解绑后本机保存的 ChatGPT 登录信息会被删除，需要重新登录一次才能继续用。',
-    'ui.connected': '已连接',
-    'ui.needsAttention': '需要注意',
-    'ui.account': '绑定账号',
-    'ui.accountPlan': '{plan} 套餐',
-    'ui.accountUnavailable': '暂时读不到账号信息。',
-    'ui.status': '使用状态',
-    'ui.statusUnbound': '还没登录。',
-    'ui.statusExpires': '有效期到 {time}（还剩 {left}）',
-    'ui.expired': '已到期',
-    'ui.privacyNote': '登录信息只保存在这台电脑上，不经过第三方服务器。',
-    'error.route.dsh-not-ready': 'DSH 还没准备好，稍后会自动再试一次',
-    'error.route.occupied': 'DSH 里已经有一条同名的 ChatGPT 通道，那是你自己配置的，本插件不会改动它。\n如果想交给本插件管理，请先删除那一条，再点「重新绑定」。',
-    'error.route.create-failed': 'ChatGPT 通道没建起来，稍后会自动再试一次',
-    'error.route.unknown': 'ChatGPT 通道暂时建不起来，稍后会自动再试一次',
-    'error.default-model.dsh-not-ready': 'DSH 还没准备好，暂时没法把默认模型切成 ChatGPT',
-    'error.default-model.unknown': '没能切换默认模型，请在「模型」设置里选一次 ChatGPT。',
-    'error.sync.exception': '同步时出了点问题，稍后会自动再试一次',
-    'error.unbind.route-cleanup': '解绑后没清理干净，稍后会自动再试一次',
-    'error.state.unbound': '尚未绑定 ChatGPT 账号。',
-    'error.state.unbound-dirty': '尚未绑定，之前留下的登录信息也没清掉。',
-    'error.state.stale-route': '绑定已经失效，而且通道没清理干净',
-    'error.state.no-login': '找不到登录信息了。',
-    'error.state.no-login-dirty': '登录信息不见了，旧信息也没清掉。',
-    'error.state.stale-route-failed': '绑定失效且路由清理失败',
-    'error.state.incomplete': '登录信息不完整。',
-    'error.state.incomplete-dirty': '登录信息不完整，旧信息也没清掉。',
-    'error.token.expiring': '登录快到期了，而且没法自动续期。',
-    'error.token.refresh-write-failed': '已续期，但没能存到本地。下次可能要重新绑定。',
-    'error.token.refresh-failed': '自动续期失败。',
-    'error.token.invalid-dirty': '登录信息用不了，旧信息也没清掉。',
-    'error.credentials.conflict': 'DSH 里存着另一个 OpenAI 账号的登录信息，不是本插件刚绑定的这个，所以本插件不会动它。\n如果你确实想用刚绑定的账号，请先到 DSH 的凭据设置里删掉那一条，再回来点「重新绑定」。',
-    'error.credentials.sync-failed': '登录信息同步到 DSH 失败，请重试或重新绑定',
-    'error.credentials.sync-failed-dirty': '登录信息同步失败，且旧信息清理也未成功，请重新绑定',
-    'error.oauth.timeout': '等了 5 分钟没有结果，已取消。',
-    'error.oauth.exchange-http': '授权完成，但没取到登录信息（网络返回 {status}）。请重试。',
-    'error.oauth.exchange-network': '授权完成，但没取到登录信息（连不上网络）。请重试。',
-    'error.oauth.write-failed': '登录成功，但没能存到本地。',
-    'error.oauth.default-model-manual': '绑定成功，但没设为默认模型。请到「模型」设置里选一次 ChatGPT。',
-    'error.oauth.flag-write-failed': '绑定成功，但状态没存住。',
-    'error.oauth.credentials-failed': '绑定失败：登录信息没能交给 DSH。',
-    'error.oauth.exception': '绑定时出了点问题。',
-    'error.oauth.in-flight': '正在等浏览器里的授权完成，请稍候。',
-    'error.oauth.port-busy': '本机 {port} 端口被别的程序占了。请关掉它（比如正在登录的 Codex 命令行），再重试',
-    'error.unbind.in-flight': '授权还在进行中，请先完成或等它超时。',
-    'error.unbind.done': '已经解除绑定',
-    'error.unbind.exception': '解绑失败。',
-  },
-  en: {
-    'meta.title': 'ChatGPT Subscription',
-    'meta.description': 'Sign in with your ChatGPT account to use ChatGPT models in DSH.',
-    'ui.loading': 'Loading…',
-    'ui.loadFailed': 'Could not read the status. Refresh the page.',
-    'ui.startFailed': 'Could not start sign-in: ',
-    'ui.startError': 'Sign-in failed: ',
-    'ui.unbindFailed': 'Could not unbind: ',
-    'ui.unknownReason': 'unknown reason',
-    'ui.retry': 'try again',
-    'ui.bind': 'Sign in with ChatGPT',
-    'ui.openingBrowser': 'Opening the browser…',
-    'ui.rebind': 'Sign in again',
-    'ui.unbind': 'Unbind',
-    'ui.unbindConfirm': 'Unbind this account?\n\nThe ChatGPT sign-in saved on this computer is deleted, and you will need to sign in again to keep using it.',
-    'ui.connected': 'Connected',
-    'ui.needsAttention': 'Needs attention',
-    'ui.account': 'Account',
-    'ui.accountPlan': '{plan} plan',
-    'ui.accountUnavailable': 'Account details are unavailable right now.',
-    'ui.status': 'Status',
-    'ui.statusUnbound': 'Not signed in yet.',
-    'ui.statusExpires': 'Valid until {time} ({left} left)',
-    'ui.expired': 'expired',
-    'ui.privacyNote': 'Sign-in data stays on this computer and never goes through a third-party server.',
-    'error.route.dsh-not-ready': 'DSH is not ready yet. This will retry automatically.',
-    'error.route.occupied': 'DSH already has a ChatGPT provider with this name, configured by you. This plugin leaves it alone.\nTo let this plugin manage it, delete that entry first, then click "Sign in again".',
-    'error.route.create-failed': 'The ChatGPT provider could not be created. This will retry automatically.',
-    'error.route.unknown': 'The ChatGPT provider is not available right now. This will retry automatically.',
-    'error.default-model.dsh-not-ready': 'DSH is not ready yet, so the default model could not be switched to ChatGPT.',
-    'error.default-model.unknown': 'The default model was not switched. Pick ChatGPT in the Models settings.',
-    'error.sync.exception': 'Something went wrong while syncing. This will retry automatically.',
-    'error.unbind.route-cleanup': 'The provider was not fully cleaned up after unbinding. This will retry automatically.',
-    'error.state.unbound': 'No ChatGPT account is bound.',
-    'error.state.unbound-dirty': 'No account is bound, and the sign-in data left behind was not removed.',
-    'error.state.stale-route': 'The sign-in is no longer valid, and the provider was not fully cleaned up.',
-    'error.state.no-login': 'The sign-in data is gone.',
-    'error.state.no-login-dirty': 'The sign-in data is gone, and the old data was not removed.',
-    'error.state.stale-route-failed': 'The sign-in is invalid and the provider could not be cleaned up.',
-    'error.state.incomplete': 'The sign-in data is incomplete.',
-    'error.state.incomplete-dirty': 'The sign-in data is incomplete, and the old data was not removed.',
-    'error.token.expiring': 'The sign-in is about to expire and cannot be refreshed automatically.',
-    'error.token.refresh-write-failed': 'Refreshed, but it could not be saved locally. You may need to sign in again.',
-    'error.token.refresh-failed': 'The automatic refresh failed.',
-    'error.token.invalid-dirty': 'The sign-in data is unusable, and the old data was not removed.',
-    'error.credentials.conflict': 'DSH holds sign-in data for a different OpenAI account, not the one just bound, so this plugin leaves it untouched.\nTo use the account you just bound, delete that entry in the DSH credentials settings first, then click "Sign in again".',
-    'error.credentials.sync-failed': 'The sign-in data could not be handed to DSH. Try again or sign in again.',
-    'error.credentials.sync-failed-dirty': 'The sign-in data could not be synced, and the old data was not cleaned up. Please sign in again.',
-    'error.oauth.timeout': 'Timed out after 5 minutes.',
-    'error.oauth.exchange-http': 'Authorization finished, but no sign-in data came back (HTTP {status}). Try again.',
-    'error.oauth.exchange-network': 'Authorization finished, but no sign-in data came back (no network). Try again.',
-    'error.oauth.write-failed': 'Signed in, but it could not be saved locally.',
-    'error.oauth.default-model-manual': 'Bound, but the default model was not switched. Pick ChatGPT in the Models settings.',
-    'error.oauth.flag-write-failed': 'Bound, but the state could not be saved.',
-    'error.oauth.credentials-failed': 'Binding failed: the sign-in data could not be handed to DSH.',
-    'error.oauth.exception': 'Something went wrong while signing in.',
-    'error.oauth.in-flight': 'Waiting for the browser sign-in to finish.',
-    'error.oauth.port-busy': 'Port {port} on this machine is taken by another program. Close it (for example a Codex CLI login) and try again.',
-    'error.unbind.in-flight': 'Sign-in is still in progress. Finish it first, or wait for the timeout.',
-    'error.unbind.done': 'Unbound.',
-    'error.unbind.exception': 'Unbinding failed.',
-  },
-};
+const LOCALES = /*__LOCALES__*/{};
+/*__LANGUAGE_RUNTIME__*/
 module.exports = {
-  // slots：配置页槽位；locale：页面文案的中英字典（不声明就用不了 ctx.locale）
+  // slots：配置页槽位；locale：页面文案跟随宿主（不声明就用不了 ctx.locale）
   inject: ['slots', 'locale'],
   async apply(ctx) {
     // slots 服务等待就绪（最多 18s）
@@ -148,7 +24,7 @@ module.exports = {
     const PREFIX = '/_dsh/dsh-chatgpt-sub';
     // DSH 0.1.7 desktop host enforces POST for state-changing RPCs, even
     // when the call has no JSON arguments. Keep read-only status polling GET.
-    const MUTATING_RPC = { startCodexOAuth: true, unbindCodex: true };
+    const MUTATING_RPC = { startCodexOAuth: true, unbindCodex: true, checkUpdate: true, enterUpdatePage: true, installUpdate: true, runUpdateCheck: true, setUpdateAuto: true, rollbackUpdate: true };
     function rpc(method, args) {
       const url = PREFIX + '/' + method;
       const controller = new AbortController();
@@ -210,36 +86,9 @@ module.exports = {
         if (typeof ctx.effect === 'function') ctx.effect(function () { return disposeDictionaries; }, 'dsh-chatgpt-sub: dictionaries');
       } catch (err) { /* 注册失败：退回浏览器语言 */ }
     }
-    var boundTranslate = localeService && typeof localeService.bind === 'function' ? localeService.bind(LOCALE_NAMESPACE) : null;
-    function browserDictionary() {
-      var nav = typeof window !== 'undefined' ? window.navigator : undefined;
-      var tags = nav && nav.languages && nav.languages.length > 0 ? nav.languages : [nav && nav.language];
-      for (var i = 0; i < tags.length; i++) {
-        if (!tags[i]) continue;
-        var base = String(tags[i]).toLowerCase().split('-')[0];
-        if (LOCALES[base]) return LOCALES[base];
-      }
-      return LOCALES.en;
-    }
-    function t(key, params) {
-      var text = null;
-      if (boundTranslate) {
-        try {
-          var resolved = boundTranslate(key, params);
-          if (typeof resolved === 'string' && resolved !== '' && resolved !== key) text = resolved;
-        } catch (err) { text = null; }
-      }
-      if (text === null) {
-        var dictionary = browserDictionary();
-        text = dictionary[key] || LOCALES.en[key] || key;
-      }
-      if (params) {
-        text = text.replace(/\{(\w+)\}/g, function (match, name) {
-          return params[name] === undefined ? match : String(params[name]);
-        });
-      }
-      return text;
-    }
+    var languageRuntime = createLanguageRuntime(LOCALE_NAMESPACE, LOCALES, localeService);
+    var t = languageRuntime.t;
+    if (typeof ctx.effect === 'function') ctx.effect(function () { return function () { languageRuntime.dispose(); }; }, 'dsh-chatgpt-sub: language preference');
     // 宿主错误：带 code 的按字典中英各一条，没有 code 的用宿主原文兜底。
     function errorText(error) {
       if (!error) return '';
@@ -274,6 +123,7 @@ module.exports = {
       style.dataset.pluginCss = id;
       style.textContent = `
         /* 宽度上限交给宿主：.X_2TxG_page > * 已把内容钉在 min(100%, 960px)，这里再写死 760px 会在宽视口下压窄内容、右侧控件够不到宿主右边界。 */
+        .cgpt-language { max-width: 100%; min-width: 0; font: inherit; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-background-primary, transparent); border: 1px solid var(--dsw-alias-border-l3); border-radius: 6px; padding: 5px 8px; }
         .cgpt-page { display: flex; flex-direction: column; width: 100%; max-width: 100%; min-width: 0; gap: 12px; color: var(--dsw-alias-label-primary); }
         .cgpt-page, .cgpt-page * { box-sizing: border-box; }
         /* 行 = 原生详情页的 .X_2TxG_row：12px 2px 内边距 + .5px 下边线（末行无线），
@@ -308,6 +158,9 @@ module.exports = {
         .cgpt-alert--error { display: flex; align-items: center; gap: 10px; color: var(--dsw-alias-state-error-primary, #d92d20); overflow-wrap: anywhere; white-space: pre-wrap; }
         .cgpt-alertText { flex: 1 1 auto; min-width: 0; }
         .cgpt-note { width: 100%; margin: 0; padding: 0; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
+        .cgpt-updates { width: 100%; min-width: 0; border-top: 1px solid var(--dsw-alias-border-primary, rgba(128,128,128,0.2)); padding-top: 16px; }
+        .cgpt-updateMode { display: flex; flex-wrap: wrap; gap: 4px; }
+        .cgpt-btn[aria-checked="true"] { background: var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,0.08)); border-color: var(--dsw-alias-brand-primary); }
         .cgpt-loading { margin: 0; padding: 0; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
         @media (max-width: 600px) { .cgpt-row { align-items: flex-start; } .cgpt-controls { justify-content: flex-start; margin-left: 0; } }
         @media (prefers-reduced-motion: reduce) { .cgpt-btn { transition: none; } }
@@ -325,6 +178,8 @@ module.exports = {
           variant: props.variant || 'outline',
           size: 'sm',
           className: className,
+          role: props.role,
+          'aria-checked': props.checked,
           disabled: props.disabled,
           onClick: props.onClick,
           key: props.key,
@@ -333,10 +188,113 @@ module.exports = {
       return h('button', {
         type: 'button',
         className: className,
+        role: props.role,
+        'aria-checked': props.checked,
         disabled: props.disabled,
         onClick: props.onClick,
         key: props.key,
       }, props.children);
+    }
+
+    function SubscriptionUpdates() {
+      var statePair = React.useState(null), state = statePair[0], setState = statePair[1];
+      var phasePair = React.useState(null), phase = phasePair[0], setPhase = phasePair[1];
+      var errorPair = React.useState(null), error = errorPair[0], setError = errorPair[1];
+      var active = React.useRef(false);
+      var busy = React.useRef(false);
+      var requestSequence = React.useRef(0);
+      function load() {
+        var sequence = ++requestSequence.current;
+        return rpc('getUpdateState').then(function (result) {
+          if (active.current && sequence === requestSequence.current) { setState(result); setError(null); }
+          return result;
+        }).catch(function () {
+          if (active.current && sequence === requestSequence.current) setError('ui.updateHostOutdated');
+          return null;
+        });
+      }
+      React.useEffect(function () {
+        active.current = true;
+        rpc('enterUpdatePage').catch(function () {});
+        load();
+        var timer = setInterval(function () { if (!busy.current) load(); }, 15000);
+        return function () { active.current = false; clearInterval(timer); };
+      }, []);
+      function action(method, args, nextPhase) {
+        if (!active.current || busy.current) return Promise.resolve(null);
+        requestSequence.current++;
+        busy.current = true; setPhase(nextPhase); setError(null);
+        return rpc(method, args).then(function (result) {
+          if (active.current) {
+            setState(result);
+            if (result.rollback && result.rollback.restored !== true) setError('ui.updateRollbackFailed');
+          }
+          return result;
+        }).catch(function () {
+          if (active.current) setError('ui.updateFailed');
+          return null;
+        }).finally(function () { busy.current = false; if (active.current) setPhase(null); });
+      }
+      function confirmInstall(version) {
+        return typeof version === 'string' && version.length > 0 && confirm(t('ui.updateConfirm', { version: version }));
+      }
+      function check() {
+        action('checkUpdate', null, 'check').then(function (result) {
+          if (active.current && result && result.available && !result.pendingRestart && result.holdVersion !== result.latest && confirmInstall(result.latest)) {
+            action('installUpdate', null, 'install');
+          }
+        });
+      }
+      var content = [];
+      function row(key, title, description, controls) {
+        return h('div', { className: 'cgpt-row', key: key },
+          h('div', { className: 'cgpt-rowText' },
+            title ? h('div', { className: 'cgpt-rowTitle' }, title) : null,
+            description ? h('div', { className: 'cgpt-rowDesc' }, description) : null),
+          controls ? hList('div', { className: 'cgpt-controls' }, controls) : null);
+      }
+      var shown = function (version) { return version || t('ui.versionUnknown'); };
+      if (state) {
+        var latest = state.latest;
+        var held = state.holdVersion && state.holdVersion === latest;
+        var statusText = t(latest ? 'ui.updateUpToDate' : 'ui.updateErrorCheckFailed');
+        if (state.disabled) statusText = t('ui.updateDisabled');
+        else if (phase === 'install') statusText = t('ui.updateInstalling', { version: shown(latest) });
+        else if (state.restartDirection === 'update') statusText = t('ui.updatePendingRestart', { version: shown(state.diskVersion) });
+        else if (state.restartDirection === 'rollback') statusText = t('ui.updateRolledBack', { version: shown(state.diskVersion) });
+        else if (state.lastError) statusText = t('ui.updateFailed');
+        else if (held) statusText = t('ui.updateHeld', { version: state.holdVersion });
+        else if (state.available && latest) statusText = t('ui.updateAvailableNow', { version: latest });
+        var facts = [t('ui.versionRunning', { version: shown(state.runningVersion) }), t('ui.versionLatest', { version: shown(latest) })];
+        if (state.lastCheckAt) {
+          var minutes = Math.max(0, Math.floor((Date.now() - state.lastCheckAt) / 60000));
+          var relative = minutes < 1 ? t('ui.timeJustNow') : minutes < 60 ? t('ui.timeMinutesAgo', { n: minutes }) : minutes < 1440 ? t('ui.timeHoursAgo', { n: Math.floor(minutes / 60) }) : t('ui.timeDaysAgo', { n: Math.floor(minutes / 1440) });
+          facts.push(t('ui.versionLastCheck', { time: relative }));
+        }
+        var buttons = state.disabled ? null : [cgptButton({ key: 'check', disabled: !!phase, onClick: check, children: t(phase === 'check' ? 'ui.updateChecking' : 'ui.updateCheckNow') })];
+        if (buttons && state.available && latest && !held && !state.pendingRestart) buttons.push(cgptButton({ key: 'install', disabled: !!phase, onClick: function () { if (confirmInstall(latest)) action('installUpdate', null, 'install'); }, children: t('ui.updateInstallNow', { version: latest }) }));
+        content.push(row('state', statusText, state.disabled ? t('ui.updateDisabledWhy') : facts.join(' · '), buttons));
+        if (!state.disabled && state.lastError) {
+          var errors = { 'incomplete-download': 'ui.updateErrorIncompleteDownload', 'integrity-mismatch': 'ui.updateErrorIntegrityMismatch', 'download-failed': 'ui.updateErrorDownloadFailed', 'too-large': 'ui.updateErrorTooLarge', 'payload-mismatch': 'ui.updateErrorPayloadMismatch', 'payload-unsafe': 'ui.updateErrorPayloadUnsafe', 'check-failed': 'ui.updateErrorCheckFailed' };
+          content.push(row('failure', null, t(errors[state.lastErrorKind] || 'ui.updateErrorUnknown')));
+        }
+        if (!state.disabled) {
+          content.push(row('mode', t('ui.autoUpdateTitle'), t(state.autoUpdate === false ? 'ui.updateModeManualDesc' : 'ui.updateModeAutoDesc'), [
+            h('div', { className: 'cgpt-updateMode', role: 'radiogroup', 'aria-label': t('ui.autoUpdateTitle'), key: 'modes' },
+              ['auto', 'manual'].map(function (mode) { return cgptButton({ key: mode, disabled: !!phase, role: 'radio', checked: (state.autoUpdate === false ? 'manual' : 'auto') === mode, onClick: function () { action('setUpdateAuto', { enabled: mode === 'auto' }, 'mode'); }, children: t(mode === 'auto' ? 'ui.updateModeAuto' : 'ui.updateModeManual') }); }))
+          ]));
+          var rollback = state.restartDirection === 'update' || !!state.lastError;
+          if (rollback || held) content.push(row('fallback', null, t(rollback ? 'ui.updateFallbackWhy' : 'ui.updateHoldWhy'), [
+            rollback ? cgptButton({ key: 'rollback', disabled: !!phase, onClick: function () { action('rollbackUpdate', null, 'rollback'); }, children: t('ui.updateRollback') }) : null,
+            held ? cgptButton({ key: 'force', disabled: !!phase, onClick: function () { if (confirmInstall(state.holdVersion)) action('installUpdate', { force: true }, 'install'); }, children: t('ui.updateAllowHeld', { version: state.holdVersion }) }) : null,
+          ]));
+        }
+      } else content.push(h('p', { className: 'cgpt-loading', key: 'loading' }, t(error ? 'ui.versionUnavailable' : 'ui.loading')));
+      if (error) content.push(h('p', { className: 'cgpt-alert cgpt-alert--error', role: 'alert', key: 'error' }, t(error)));
+      return h('section', { className: 'cgpt-updates', 'aria-labelledby': 'cgpt-update-title' },
+        h('h2', { id: 'cgpt-update-title', className: 'cgpt-rowTitle' }, t('ui.versionAndUpdateTitle')),
+        h('p', { className: 'cgpt-rowDesc' }, t('ui.versionAndUpdateDesc')),
+        hList('div', { className: 'cgpt-list' }, content));
     }
 
     // ---------- 插件配置页组件 ----------
@@ -348,6 +306,12 @@ module.exports = {
           authorizing = _React$useState2[0],
           setAuthorizing = _React$useState2[1];
       var pollRef = React.useRef(null);
+      var languageState = React.useState(0);
+      var languageErrorState = React.useState(null);
+      React.useEffect(function () {
+        return languageRuntime.subscribe(function () { languageState[1](function (value) { return value + 1; }); });
+      }, []);
+
 
       // 加载状态 + 轮询
       var load = React.useCallback(function () {
@@ -370,7 +334,7 @@ module.exports = {
       var handleAuthorize = React.useCallback(function () {
         if (authorizing) return;
         setAuthorizing(true);
-        rpc('startCodexOAuth').then(function (res) {
+        rpc('startCodexOAuth', { language: languageRuntime.locale() }).then(function (res) {
           if (!res.ok) {
             alert(t('ui.startFailed') + (errorText(res.error) || t('ui.unknownReason')));
             setAuthorizing(false);
@@ -412,7 +376,7 @@ module.exports = {
       function fmtTime(ms) {
         if (!ms) return '—';
         var d = new Date(ms);
-        return String(d.getFullYear()) + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+        return new Intl.DateTimeFormat(languageRuntime.locale(), { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(d);
       }
       function fmtCountdown(ms) {
         if (!ms || ms <= 0) return t('ui.expired');
@@ -428,9 +392,23 @@ module.exports = {
       // 页脚只讲页面级事实（隐私）；「绑定会打开登录页」「解绑会删本机登录信息」
       // 各在状态行、确认弹窗里说一次，不重复。
       var note = h('p', { className: 'cgpt-note' }, t('ui.privacyNote'));
+      var languageRow = h('div', { className: 'cgpt-row', key: 'language' },
+        h('div', { className: 'cgpt-rowText' },
+          h('label', { className: 'cgpt-rowTitle', htmlFor: 'cgpt-language' }, t('language.title')),
+          h('div', { className: 'cgpt-rowDesc' }, t('language.description'))),
+        h('div', { className: 'cgpt-controls' },
+          h('select', {
+            id: 'cgpt-language', value: languageRuntime.preference(), className: 'cgpt-language',
+            onChange: function (event) {
+              try { languageRuntime.setPreference(event.target.value); languageErrorState[1](null); }
+              catch { languageErrorState[1](t('language.saveFailed')); }
+            },
+          }, h('option', { value: 'auto' }, t('language.auto')),
+            languageRuntime.options().map(function (language) { return h('option', { key: language.id, value: language.id }, language.label); }))));
+
 
       if (!status) {
-        return h('div', { className: 'cgpt-page' }, h('p', { className: 'cgpt-loading' }, t('ui.loading')));
+        return h('div', { className: 'cgpt-page' }, languageRow, h('p', { className: 'cgpt-loading' }, t('ui.loading')));
       }
 
       var bound = status.bound;
@@ -469,7 +447,7 @@ module.exports = {
           cgptButton({ key: 'unbind', className: 'cgpt-btn--danger', onClick: handleUnbind, children: t('ui.unbind') }),
         ];
 
-      var rows = [];
+      var rows = [languageRow];
       if (accountDesc) {
         rows.push(hList('div', { className: 'cgpt-row', key: 'account' }, [
           h('div', { className: 'cgpt-rowText' },
@@ -494,6 +472,8 @@ module.exports = {
       return hList('div', { className: 'cgpt-page' }, [
         hList('div', { className: 'cgpt-list' }, rows),
         alerts.length > 0 ? hList('div', { className: 'cgpt-alerts' }, alerts) : null,
+        languageErrorState[0] ? h('p', { className: 'cgpt-alert cgpt-alert--error', role: 'alert' }, languageErrorState[0]) : null,
+        h(SubscriptionUpdates),
         note,
       ]);
     }
