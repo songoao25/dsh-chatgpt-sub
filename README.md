@@ -15,25 +15,27 @@ The companion [Bottom Info Bar](https://github.com/songoao25/dsh-bottom-info-bar
 
 ## Install
 
-Recommended: open **Plugins → Add plugin** in DSH and paste this repository address:
+Recommended: open **Plugins → Add plugin** in DSH and enter the package name:
 
 ```
-https://github.com/SONGOAO25/dsh-chatgpt-sub
+dsh-chatgpt-sub
 ```
 
 Prefer the terminal? For a CLI web profile:
 
 ```bash
-dsh plugin --profile web add https://github.com/SONGOAO25/dsh-chatgpt-sub
-```
-
-Then **restart DSH**. Refreshing the page is not enough. In the desktop app, use **Plugins → Add plugin**; its profile is managed by the app and cannot be installed into through the CLI. DSH uses pnpm to install plugins; the repository includes its built files and requires no installation build.
-
-**npm availability:** the public registry returned no package for `dsh-chatgpt-sub` on 2026-10-10. Use the repository address until a successful npm release is verified. After publication, the package-name command will be:
-
-```bash
 dsh plugin --profile web add dsh-chatgpt-sub
 ```
+
+Installing from the repository also works — `lib/` is committed, so that path needs no build:
+
+```
+https://github.com/SONGOAO25/dsh-chatgpt-sub
+```
+
+Then **restart DSH**. Refreshing the page is not enough. In the desktop app, use **Plugins → Add plugin**; its profile is managed by the app and cannot be installed into through the CLI. DSH uses pnpm to install plugins; the package ships its built files and requires no installation build.
+
+The package has been public on npm since 2026-10-13 (0.5.1). If the package name cannot be resolved, fall back to the repository address.
 
 Local installs, Windows guidance, updating and troubleshooting: [docs/INSTALL.md](docs/INSTALL.md).
 

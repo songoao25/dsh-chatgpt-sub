@@ -32,7 +32,7 @@ Account tokens belong only in the local sign-in file and DSH credential store. B
 
 Use a focused branch and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/). Describe the user-visible change, checks performed and remaining verification gaps. External contributions need maintainer review.
 
-Release Please manages versions and release notes. Do not manually change package or manifest version fields outside the established release process. Owner code PRs may auto-merge after required checks; release PRs are excluded and require maintainer confirmation. Tags trigger npm publication; publication success must be checked against the public registry and downloadable archive. The 0.4.0 npm publishing attempt failed, so a GitHub Release alone does not establish npm availability.
+Release Please manages versions and release notes. Do not manually change package or manifest version fields outside the established release process. Owner code PRs may auto-merge after required checks; release PRs are excluded and require maintainer confirmation. Tags trigger npm publication through npm Trusted Publishing (OIDC); publication success must be checked against the public registry and the downloadable archive, because neither a green publish job nor a GitHub Release proves the version is publicly installable — the 0.4.0 attempt and the 2026-10-13 staged-only publish both looked green without a public package.
 
 README.md is the English entry point; README.zh-CN.md mirrors it in Chinese. Keep installation claims aligned with published packages and DSH's actual supported installation paths. Public repository files are for users and contributors; exclude private instructions, session records, account data and internal audits.
 
