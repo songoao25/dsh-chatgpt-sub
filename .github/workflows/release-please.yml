@@ -1,23 +1,38 @@
 name: Release Please
+
+# 合并到 main 后，按 Conventional Commits 算出下一个版本，开/更新「发版 PR」。
+# 发版配置的唯一出处是 release-please-config.json，本文件只负责调用。
+# 发布链的六步与各 workflow 的职责分工写在 CONTRIBUTING.md 的框架记录里。
 on:
   push:
     branches: [main]
-  # 手动补跑入口（配置 AUTOMATION_TOKEN 后正常不需要用；未配置时靠它兜底）。
+  # 手动补跑入口：发版 PR 卡住或需要重算时用。
   workflow_dispatch:
 permissions:
   contents: write
   pull-requests: write
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
-      - uses: google-github-actions/release-please-action@v4
+      - name: Report release token mode
+        env:
+          AUTOMATION_TOKEN: ${{ secrets.AUTOMATION_TOKEN }}
+        run: |
+          if [ -z "$AUTOMATION_TOKEN" ]; then
+            echo "::warning::AUTOMATION_TOKEN is not configured; Release Please can prepare a release, but tag/publish follow-up may need manual dispatch."
+          else
+            echo "AUTOMATION_TOKEN is configured; automatic release follow-up is enabled."
+          fi
+      - uses: googleapis/release-please-action@v5
         with:
-          release-type: node
-          # AUTOMATION_TOKEN（PAT）优先，GITHUB_TOKEN 有两个硬伤：
-          #   ① 它推的分支不被 pull_request 事件信任，发布 PR 的必需检查 CI 会停在
-          #      action_required（approve API 对同仓分支返回 404），PR 永远无法合并；
-          #   ② 它产生的 push 不触发其他 workflow，合并到 main 后本 workflow 不会再跑，
-          #      发布 PR 就停在旧状态。
-          # 没配 secret 时回退 GITHUB_TOKEN，行为与以前一致（手动 dispatch 兜底）。
+          # 用 owner 的 PAT（AUTOMATION_TOKEN）而不是 github.token，两个原因：
+          #   ① github.token 推的分支不被 pull_request 事件信任，发版 PR 的必需检查
+          #      会停在 action_required，PR 永远合不了；
+          #   ② github.token 产生的 push 不再触发其他 workflow，合并到 main 后本
+          #      workflow 不会再跑，打标签后的发布也不会自动开始。
+          # 没配 secret 时回退 github.token，手动 dispatch 仍可兜底。
           token: ${{ secrets.AUTOMATION_TOKEN || github.token }}

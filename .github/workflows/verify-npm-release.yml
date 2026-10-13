@@ -2,26 +2,28 @@ name: Verify npm release
 
 # 后台哨兵：确认发到 npm 的版本真的公开可安装。
 #
-# 三条触发路径：
-#   workflow_run      —— 每次 Publish NPM package 跑完自动复查（正常路径）
-#   schedule          —— 定时兜底：标签打了但发布没跑、或发布「报绿却没公开」
-#                        （2026-10-13 的 staged-only 静默暂存正是这种）也能被抓到
-#   workflow_dispatch —— 随时手动复查
+# 为什么独立成一个 workflow：npm 的发布是异步的（详见 publish-npm.yml 顶部的注释），
+# 从「上传完成」到「公开可下载」实测要 74s ~ 18min，且会随 npm 侧队列劣化。
+# 把这段等待放回发布 job，就等于把「发包耗时」绑到 npm 的队列上 ——
+# 这正是 2026-09-30 发包从几十秒变成十几分钟、且常常判红的原因。
+# 所以：发布 job 秒级结束，等待和读回都在这里，慢也只慢这个哨兵。
 #
-# 超时即判「验证不完整」，看得见地失败；维护者可以重跑。
+# 三条触发路径：
+#   workflow_run      —— 每次 Publish NPM package 跑完自动复查（正常路径，会等一小会儿）
+#   schedule          —— 定时兜底：标签打了但发布 job 根本没跑（静默失败）也能被抓到
+#   workflow_dispatch —— 随时手动复查
 on:
   workflow_run:
     workflows: ['Publish NPM package']
     types: [completed]
-  # 6 小时一次兜底。默认分支即为最新版本所在分支，读回的就是当前应公开的版本。
-  schedule:
-    - cron: '41 */6 * * *'
   workflow_dispatch:
     inputs:
       version:
         description: Version to verify (defaults to package.json)
         type: string
         required: false
+  schedule:
+    - cron: '41 */6 * * *'
 
 permissions:
   contents: read
@@ -36,10 +38,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # 发布 job 自己红的时候不必再补一刀 —— 那已经是可见的失败了。
+    # 只认 main / 标签触发的发布：手动在普通分支上跑的发布不算发版验证。
     if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && (github.event.workflow_run.head_branch == 'main' || startsWith(github.event.workflow_run.head_branch, 'v'))) }}
     steps:
       # workflow_run 时按触发它的 ref 检出（版本号精确到刚发的那一次）；
-      # schedule / 手动触发使用默认分支或所选分支。
+      # schedule / 手动触发则用默认分支。
       - name: Check out release ref
         uses: actions/checkout@v7
         with:
@@ -57,22 +60,24 @@ jobs:
         id: age
         shell: bash
         run: |
-          # package.json 的最近一次提交时间用于判断发布等待时长。
-          epoch="$(git log -1 --format=%ct -- package.json)"
+          # .release-please-manifest.json 只在 Release Please 的发布提交里改写，
+          # 所以它的最近一次提交时间就是这次发布的时刻。
+          epoch="$(git log -1 --format=%ct -- .release-please-manifest.json)"
           echo "release_epoch=$epoch" >> "$GITHUB_OUTPUT"
           echo "release age: $(( $(date +%s) - epoch ))s"
 
       # 读回校验：版本元数据 + latest 不落后 + tarball 完整性。
-      # 只有公开下载与完整性检查全部通过才放行。
+      # 仍在宽限期内（默认 45 分钟）就判「待定」放行，超过宽限期才失败 ——
+      # npm 偶发十几分钟才把版本公开，判太严会把正常排队误报成失败。
       - name: Read back public npm release
         run: node scripts/verify-npm-publication.mjs
         env:
-          # 不再有长期密钥：生命周期状态查询会降级为 unknown，失败文案少一档细节；
-          # 真正的通过条件（公开元数据 + tarball 完整性 + latest）不受影响。
           NPM_RELEASE_VERSION: ${{ github.event.inputs.version || '' }}
           NPM_RELEASE_EPOCH: ${{ steps.age.outputs.release_epoch }}
           # 发布刚结束时值得等一小会儿（典型 1~2 分钟就能确认）；
-          # 定时与手动触发只读一次，绝不空等。
+          # 定时兜底只读一次，绝不空等。
           NPM_VERIFY_WAIT_MS: ${{ github.event_name == 'workflow_run' && '600000' || '0' }}
-          # 只读验证，不自动更改 latest。
+          # 只读验证，不自动更改 latest：改 dist-tag 需要凭据，而本仓库走 OIDC 免密钥。
+          # latest 真落后时哨兵判红，维护者手工执行
+          # npm dist-tag add dsh-chatgpt-sub@<version> latest。
           NPM_VERIFY_REPAIR_DIST_TAG: '0'

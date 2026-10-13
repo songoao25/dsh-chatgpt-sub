@@ -4,6 +4,7 @@
 
 [![License: MIT](https://img.shields.io/github/license/SONGOAO25/dsh-chatgpt-sub)](https://github.com/SONGOAO25/dsh-chatgpt-sub/blob/main/LICENSE)
 [![Release](https://img.shields.io/github/v/release/SONGOAO25/dsh-chatgpt-sub)](https://github.com/SONGOAO25/dsh-chatgpt-sub/releases)
+[![npm 版本](https://img.shields.io/npm/v/dsh-chatgpt-sub)](https://www.npmjs.com/package/dsh-chatgpt-sub)
 
 一个 DeepSeek Harness 插件：通过 OpenAI 登录页面连接 ChatGPT 账号，在 DSH 中使用该账号可用的 ChatGPT 模型。需要包含 Codex 使用权限的套餐和足够的订阅额度。
 
@@ -49,9 +50,11 @@ npm 上的 `dsh-chatgpt-sub` 自 2026-10-13（0.5.1）起公开可装。包名�
 
 授权和模型请求与 OpenAI 官方服务通信。登录信息保存在本机标准位置 `~/.codex/auth.json`，只有文件所有者可读写，并同步到 DSH 的凭据库。绑定会更新这个共用文件，因此可能改变 Codex CLI 使用的账号。登录信息会随授权请求传给 OpenAI，不写入插件日志。
 
-解绑和卸载保留 `~/.codex/auth.json`，清除本插件的绑定和它管理的 DSH 条目。插件自动续期登录。**版本与更新**中，自动更新（默认）在 DSH 启动时检查 npm，校验并替换插件文件，重启后生效；手动模式只检查，安装前需要确认。更新失败会恢复旧文件，需要时可在设置中回滚。登录信息会保留。本地副本和链接安装需要更新代码并重新构建，见 [docs/INSTALL.md](docs/INSTALL.md)。npm 包发布后才能获取更新。
+解绑和卸载保留 `~/.codex/auth.json`，清除本插件的绑定和它管理的 DSH 条目。插件自动续期登录。**版本与更新**中，自动更新（默认）在 DSH 启动时检查 npm，校验并替换插件文件，重启后生效；手动模式只检查，安装前需要确认。更新失败会恢复旧文件，需要时可在设置中回滚。登录信息会保留。本地副本和链接安装需要更新代码并重新构建，见 [docs/INSTALL.md](docs/INSTALL.md)。
 
-桌面客户端在 **插件** 页卸载；命令行网页端使用 `dsh plugin --profile web remove dsh-chatgpt-sub`。报告问题时，不要附登录文件、凭据或真实账号信息。
+## 卸载与回退
+
+桌面客户端在 **插件** 页卸载；命令行网页端执行 `dsh plugin --profile web remove dsh-chatgpt-sub`，然后重启 DSH。卸载会保留 `~/.codex/auth.json`（Codex CLI 自己的登录态），清除本插件的绑定和它管理的 DSH 条目。想退回上一版而不卸载：更新失败后、或新版正在等待重启时，可在**版本与更新**里回滚。报告问题时，不要附登录文件、凭据或真实账号信息。
 
 ## 语言
 
