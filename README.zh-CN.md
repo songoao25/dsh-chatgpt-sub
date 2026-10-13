@@ -15,25 +15,27 @@
 
 ## 安装
 
-推荐：打开 DSH **插件 → 添加插件**，粘贴仓库地址：
+推荐：打开 DSH **插件 → 添加插件**，填包名：
 
 ```
-https://github.com/SONGOAO25/dsh-chatgpt-sub
+dsh-chatgpt-sub
 ```
 
 使用命令行启动的网页端，也可以执行：
 
 ```bash
-dsh plugin --profile web add https://github.com/SONGOAO25/dsh-chatgpt-sub
-```
-
-装完**重启 DSH**，只刷新页面不够。桌面客户端请使用 **插件 → 添加插件**；它的配置由客户端管理，不能通过命令行安装。DSH 使用 pnpm 安装插件；仓库已包含构建文件，安装时无需构建。
-
-**npm 状态：**2026-10-10 查询公开仓库时，未找到 `dsh-chatgpt-sub`。在确认发布成功之前，请使用仓库地址。发布成功后，按包名安装的命令为：
-
-```bash
 dsh plugin --profile web add dsh-chatgpt-sub
 ```
+
+也可以填仓库地址 —— 仓库已包含构建文件，填地址安装无需构建：
+
+```
+https://github.com/SONGOAO25/dsh-chatgpt-sub
+```
+
+装完**重启 DSH**，只刷新页面不够。桌面客户端请使用 **插件 → 添加插件**；它的配置由客户端管理，不能通过命令行安装。DSH 使用 pnpm 安装插件；包已包含构建文件，安装时无需构建。
+
+npm 上的 `dsh-chatgpt-sub` 自 2026-10-13（0.5.1）起公开可装。包名解析不到时，改用上面的仓库地址。
 
 本地安装、Windows 说明、更新与故障排查见 [docs/INSTALL.md](docs/INSTALL.md)。
 

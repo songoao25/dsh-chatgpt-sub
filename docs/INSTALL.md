@@ -10,13 +10,13 @@
 
 ### 方式一：在 DSH 插件页添加（推荐；桌面端唯一方式）
 
-打开 DSH 的 **插件 → 添加插件**，在「包名或地址」里填仓库地址（当前推荐）：
+打开 DSH 的 **插件 → 添加插件**，在「包名或地址」里填包名（推荐）：
 
 ```
-https://github.com/SONGOAO25/dsh-chatgpt-sub
+dsh-chatgpt-sub
 ```
 
-2026-10-10 查询 npm 公开仓库时未找到 `dsh-chatgpt-sub`，目前请用仓库地址。确认 npm 发布成功后才可按包名安装。填仓库地址安装仓库根（`lib/` 已入库，所以填地址安装**不跑构建、不会弹「待批准的构建脚本」**）。同一个框也接受：
+npm 上的 `dsh-chatgpt-sub` 自 2026-10-13（0.5.1）起公开可装。也可以填仓库地址，安装的是仓库根（`lib/` 已入库，所以填地址安装**不跑构建、不会弹「待批准的构建脚本」**）。同一个框也接受：
 
 - 本仓库工作副本的绝对路径 —— 用于开发（会产生 `link:` 安装）。
 
@@ -27,7 +27,7 @@ https://github.com/SONGOAO25/dsh-chatgpt-sub
 用你实际启动的 profile（`dsh web` 启动的是 `web`）：
 
 ```bash
-# npm 发布成功后才可使用（当前请用下方仓库地址）
+# 按包名（推荐；0.5.1 起已在 npm 公开）
 dsh plugin --profile web add dsh-chatgpt-sub
 
 # 或仓库默认分支（不跑构建，lib/ 已入库）
@@ -85,7 +85,7 @@ dsh --profile web --dump-config | grep dsh-chatgpt-sub
 
 在插件页的**版本与更新**里选择自动更新（默认）或手动更新。自动更新在 DSH 启动时检查 npm、校验并替换插件文件，重启后生效；手动检查只查询版本，安装前会弹出确认。更新失败自动恢复旧文件，需要时可以回滚；登录和绑定信息保留。设置页会显示运行版本、最新版本、上次检查时间以及是否需要重启。
 
-更新状态、日志和备份保存在本端 `DSH_HOME` 下的 `dsh-chatgpt-sub/`（默认 `~/.dsh/dsh-chatgpt-sub/`；`DSH_CHATGPT_DATA_DIR` 可覆盖）。共享 Codex 登录文件及已有绑定标记位置保持原样。源码和链接安装不自动替换文件，仍按下面的方法更新。npm 包未公开时无法下载更新。
+更新状态、日志和备份保存在本端 `DSH_HOME` 下的 `dsh-chatgpt-sub/`（默认 `~/.dsh/dsh-chatgpt-sub/`；`DSH_CHATGPT_DATA_DIR` 可覆盖）。共享 Codex 登录文件及已有绑定标记位置保持原样。源码和链接安装不自动替换文件，仍按下面的方法更新；自动/手动更新都依赖 npm 上的公开版本（`dsh-chatgpt-sub` 自 0.5.1 起已公开）。
 
 ### 手动更新本地副本或迁移安装
 
@@ -132,7 +132,7 @@ dsh plugin --profile web remove dsh-chatgpt-sub
 | 现象 | 原因与处理 |
 |---|---|
 | 插件详情里没有配置页 | ① 没重启：需重启 DSH；② 装错 profile：确认启动用的 profile 与安装目标一致；③ `dsh --profile web --dump-config` 里没有 dsh-chatgpt-sub：重新执行安装 |
-| 插件页或命令行报「未找到相关插件」 | 先检查包名；npm 尚未发布或暂不可用时，改用仓库地址安装 |
+| 插件页或命令行报「未找到相关插件」 | 先检查包名拼写；包名解析不到时改用仓库地址安装 |
 | 插件页报「这个包没有声明组合包」 | 装到的是一个「仓库根不是包」的仓库。本仓库根目录一直是包；请确认填的是本仓库，并用包含最新提交的地址 |
 | 插件页提示「有依赖的安装脚本需要你允许」/「待批准的构建脚本」 | 装到的清单里声明了 `prepare` / `prepack`（本仓库当前清单没有，只有 `prepublishOnly`）。用最新提交的仓库地址重装；确实需要放行时，按提示把 pnpm 打印的那一行加进 profile 的 `pnpm-workspace.yaml` 的 `allowBuilds` 再重试 |
 | 命令行报 `profile "desktop" is managed exclusively by the Electron application` | 桌面端客户端的 profile 不能用 CLI 改：请在客户端 **插件 → 添加插件** 里安装/卸载 |
