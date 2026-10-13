@@ -5,10 +5,10 @@
 //      pull_request 信任，会让「全自动发布」断成两截
 //   2) 发布 PR（同仓 release-please-- 分支）也在 auto-merge 覆盖范围内
 //   3) 需要时能手动补跑：release-please / ci 都保留 workflow_dispatch
-//   4) npm 发布认证走仓库 secret DSH_CHATGPT_SUB_NPM_TOKEN（granular token，
-//      做法与底部信息栏插件一致，那边这个 secret 叫 NPM_TOKEN）；
-//      whoami 只能当提示——2026-08 起 Bypass-2FA 的 token 会被拒绝身份类查询，
-//      拿它当失败判据会把好 token 误判成坏 token（2026-10-10 的 v0.5.0 就是这么红的）
+//   4) npm 发布认证走 Trusted Publishing（OIDC）：无长期密钥，job 必须拿到
+//      id-token: write。（2026-10-13 从 granular token 换回 OIDC：token 的
+//      stage-only 权限会把版本静默放进待审队列，而 npm 已公告 token 直接
+//      发布将于 2027-01 移除）
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -45,22 +45,16 @@ console.log('发布链契约测试全部通过')
 
 const publish = read('.github/workflows/publish-npm.yml');
 const verify = read('.github/workflows/verify-npm-release.yml');
-// 认证走仓库 secret DSH_CHATGPT_SUB_NPM_TOKEN（2026-10-13 决定：与底部信息栏插件同做法）。
-// npm 目前只支持 granular access token，CI 里没法过手机验证码，所以 token 必须
-// 勾 Bypass 2FA，并覆盖要发布的包（All Packages + Read and write）。
-assert.ok(publish.includes('NODE_AUTH_TOKEN: ${{ secrets.DSH_CHATGPT_SUB_NPM_TOKEN }}'),
-  'publish must authenticate with the DSH_CHATGPT_SUB_NPM_TOKEN secret');
-assert.ok(!publish.includes('secrets.NPM_TOKEN'),
-  'the stale NPM_TOKEN secret must not be referenced any more');
-assert.ok(!/^\s*id-token:\s*write\s*$/m.test(publish), 'token publishing must not request an OIDC id-token');
-assert.ok(!publish.includes('ACTIONS_ID_TOKEN_REQUEST_URL'), 'token publishing must not depend on OIDC');
-assert.ok(publish.includes('npm whoami'), 'token problems must still leave a diagnostic in the log');
-assert.ok(publish.includes('::warning::') && !publish.includes('npm rejected NPM_TOKEN'),
-  'whoami must degrade to a warning: bypass-2FA tokens are refused for identity lookups');
-assert.ok(publish.includes('Bypass two-factor authentication'),
-  'a rejected publish must explain the bypass-2FA requirement');
+// 认证走 npm Trusted Publishing（OIDC）：没有长期密钥可以泄漏、过期或被撤销。
+assert.ok(/^\s*id-token:\s*write\s*$/m.test(publish), 'publish must request id-token: write for trusted publishing');
+assert.ok(!publish.includes('NODE_AUTH_TOKEN'), 'trusted publishing must not read NODE_AUTH_TOKEN');
+assert.ok(!publish.includes('DSH_CHATGPT_SUB_NPM_TOKEN'),
+  'trusted publishing must not depend on a long-lived npm token');
+assert.ok(publish.includes('ACTIONS_ID_TOKEN_REQUEST_URL'), 'missing OIDC must be diagnosed without exposing credentials');
+assert.ok(publish.includes('E_STAGE_REQUIRED'),
+  'a stage-only trusted publisher must be diagnosed: npm would otherwise stage the version silently');
 const nodeVersion = publish.match(/node-version:\s*['"]?(\d+)/);
-assert.ok(nodeVersion && Number(nodeVersion[1]) >= 22, 'publish must run on Node >= 22');
+assert.ok(nodeVersion && Number(nodeVersion[1]) >= 22, 'trusted publishing requires Node >= 22.14 (npm CLI >= 11.5.1)');
 assert.ok(publish.includes('verify_only'), 'authentication diagnostics must not require publishing');
 assert.ok(publish.includes('${GITHUB_REF_NAME#v}'), 'release tag must match package version');
 assert.ok(publish.includes('npm publish --access public'), 'published package must be public');
