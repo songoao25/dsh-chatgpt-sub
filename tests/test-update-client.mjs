@@ -8,6 +8,12 @@ const start = source.indexOf('    function SubscriptionUpdates() {')
 const end = source.indexOf('    // ---------- 插件配置页组件 ----------', start)
 assert.ok(start >= 0 && end > start, 'update component must be extractable')
 const componentSource = source.slice(start, end)
+// 控件助手（原生组件不可用时的兜底路径）随组件一起执行：本用例没有宿主 primitives，
+// 走的正是 cgptStatus / cgptMode 的降级分支。
+const helperStart = source.indexOf('    function cgptStatus(props) {')
+const helperEnd = source.indexOf('    function SubscriptionUpdates() {')
+assert.ok(helperStart >= 0 && helperEnd > helperStart, 'control helpers must be extractable')
+const helperSource = source.slice(helperStart, helperEnd)
 const deferred = () => {
   let resolve, reject
   const promise = new Promise((yes, no) => { resolve = yes; reject = no })
@@ -57,8 +63,8 @@ function harness(options = {}) {
   const t = (key, values) => values ? `${key} ${JSON.stringify(values)}` : key
   const setInterval = (callback, ms) => { const id = ++intervalId; timers.set(id, { callback, ms }); return id }
   const clearInterval = id => { assert.ok(timers.delete(id), 'cleanup must remove its interval') }
-  const Component = new Function('React', 'h', 'hList', 'cgptButton', 'rpc', 'confirm', 't', 'setInterval', 'clearInterval',
-    `${componentSource}\nreturn SubscriptionUpdates;`)(React, h, hList, props => h('button', props, props.children), rpc, confirm, t, setInterval, clearInterval)
+  const Component = new Function('React', 'h', 'hList', 'cgptButton', 'rpc', 'confirm', 't', 'setInterval', 'clearInterval', 'NativeTag', 'NativeStateDot', 'NativeSegmentedControl', 'NativeRiskConfirmation',
+    `${helperSource}\n${componentSource}\nreturn SubscriptionUpdates;`)(React, h, hList, props => h('button', props, props.children), rpc, confirm, t, setInterval, clearInterval, null, null, null, null)
   function render() {
     cursor = 0
     tree = Component()
