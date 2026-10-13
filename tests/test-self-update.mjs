@@ -18,6 +18,7 @@ import {
   PACKAGE_NAME,
   UPDATE_ERROR_KINDS,
   applyPayload,
+  classifyRestart,
   compareSemver,
   createSelfUpdater,
   describeUpdateError,
@@ -811,6 +812,62 @@ await okAsync('备份只保留最近 keepBackups 份，不无限占用户空间'
   } finally { fx.cleanup() }
 })
 
+
+// =====================================================================================
+// 16. 2026-10-13：重启方向的三种说法（用户报「运行中的版本已是最新，界面却显示已回滚到旧」）
+// =====================================================================================
+// 现场：磁盘被插件之外的东西换成旧版（DSH 自己的插件安装、手动装旧包都算），引擎里根本没有回滚记录。
+// host 原来只按「磁盘版本 < 运行中版本」就套用「已回滚到上一版 X。」，于是从没点过回滚的用户会看到
+// 一句他没做过的动作，而事实行的「运行中版本」还停在新版 —— 界面自己在说两套话。
+// 现在方向分三种：update（磁盘已是新版）/ rollback（用户真点过回滚）/ downgrade（磁盘变旧了，但不是他）。
+ok('重启方向三分类：磁盘变旧且没有回滚记录时是 downgrade，绝不冒充用户回滚', () => {
+  // 正常升级：磁盘已是新版
+  assert.equal(classifyRestart({ diskVersion: '1.1.0', runningVersion: '1.0.0', holdVersion: null }), 'update')
+  // 版本一致：没有任何待重启
+  assert.equal(classifyRestart({ diskVersion: '1.0.0', runningVersion: '1.0.0', holdVersion: null }), null)
+  // 用户真回滚过：holdVersion 正是被回滚掉的、也就是内存里正在跑的那个版本
+  assert.equal(classifyRestart({ diskVersion: '1.0.0', runningVersion: '1.1.0', holdVersion: '1.1.0' }), 'rollback')
+  // 磁盘被外部换成旧版：没有凭据就是 downgrade（用户报的那一次就是这个形状）
+  assert.equal(classifyRestart({ diskVersion: '0.5.0', runningVersion: '0.6.0', holdVersion: null }), 'downgrade')
+  // 有暂缓版本、但它不是正在跑的那个：仍然不算「用户回滚了这一次」
+  assert.equal(classifyRestart({ diskVersion: '1.0.0', runningVersion: '1.1.0', holdVersion: '1.2.0' }), 'downgrade')
+  // 版本号读不出来（package.json 损坏）：不猜方向，宁可什么也不说
+  assert.equal(classifyRestart({ diskVersion: null, runningVersion: '1.1.0', holdVersion: null }), null)
+  assert.equal(classifyRestart({}), null)
+  assert.equal(classifyRestart(null), null)
+})
+
+await okAsync('真实装置：外部换旧版 → downgrade；用户点过回滚 → rollback（两种都不再相互冒充）', async () => {
+  // ① 外部降级：装载时磁盘与运行版本一致，之后被引擎之外的东西换成旧版（本引擎「只升不降」，做不出这一步）
+  const external = makeFixture({ version: '1.20.14' })
+  try {
+    const updater = createSelfUpdater({ packageDir: external.packageDir, dataDir: external.dataDir, runningVersion: '1.20.14' })
+    updater.loadState()
+    assert.equal(classifyRestart(updater.getState()), null, '装载时应无待重启')
+    writeFileSync(join(external.packageDir, 'package.json'), JSON.stringify({ name: PACKAGE_NAME, version: '1.20.8' }, null, 2) + '\n')
+    const state = updater.getState()
+    assert.equal(state.runningVersion, '1.20.14')
+    assert.equal(state.diskVersion, '1.20.8')
+    assert.equal(state.holdVersion, null, '没有任何回滚记录')
+    assert.equal(classifyRestart(state), 'downgrade')
+  } finally { external.cleanup() }
+
+  // ② 真回滚：用户点过「回滚到上一版」——引擎记下被回滚掉的版本，重启后版本会退回去，这一次才配叫回滚
+  const real = makeFixture({ version: '1.20.14' })
+  try {
+    writeFileSync(join(real.dataDir, 'update-state.json'), JSON.stringify({ pendingVersion: '1.20.14', holdVersion: null }))
+    const backupDir = join(real.dataDir, 'update-backup', '1.20.14')
+    mkdirSync(backupDir, { recursive: true })
+    writeFileSync(join(backupDir, 'package.json'), JSON.stringify({ name: PACKAGE_NAME, version: '1.20.13' }, null, 2) + '\n')
+    const updater = createSelfUpdater({ packageDir: real.packageDir, dataDir: real.dataDir, runningVersion: '1.20.14' })
+    updater.loadState()
+    assert.equal(updater.rollback().restored, true)
+    const state = updater.getState()
+    assert.equal(state.diskVersion, '1.20.13')
+    assert.equal(state.holdVersion, '1.20.14')
+    assert.equal(classifyRestart(state), 'rollback')
+  } finally { real.cleanup() }
+})
 
 console.log(`self-updater: ${passed} PASS / ${failed} FAIL`);
 if (failures.length) console.error(failures.join("\n"));

@@ -49,6 +49,8 @@ try {
   assert.equal(initial.data.disabled, undefined, 'real installed fixture enables updates');
   assert.equal(initial.data.runningVersion, '0.4.0');
   assert.equal(initial.data.autoUpdate, true);
+  assert.equal(initial.data.restartKind, null, 'disk equals running at boot: nothing to restart');
+  assert.ok('restartDirection' in initial.data, 'compat field for pages built before the three-way kind');
   for (const method of ['checkUpdate', 'enterUpdatePage', 'installUpdate', 'setUpdateAuto', 'rollbackUpdate', 'runUpdateCheck']) assert.equal((await request(method)).status, 405, method + ' requires POST');
   authorized = false;
   assert.equal((await request('installUpdate', {})).status, 401, 'official authentication boundary applies to updates');
@@ -60,6 +62,15 @@ try {
   assert.equal(checked.data.available, true);
   assert.equal(downloadCount, 0, 'checking cannot download or install');
   assert.equal(JSON.parse(readFileSync(join(packageDir, 'package.json'))).version, '0.4.0');
+  // 磁盘被插件之外的东西换成旧版（这里直接改 package.json 模拟 DSH 的插件安装）：没有回滚记录，
+  // 方向必须是 downgrade —— 用户从没点过「回滚到上一版」，host 不能替他说这句话。
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({ name: 'dsh-chatgpt-sub', type: 'module', version: '0.3.0' }));
+  const downgraded = await request('getUpdateState');
+  assert.equal(downgraded.data.diskVersion, '0.3.0');
+  assert.equal(downgraded.data.runningVersion, '0.4.0');
+  assert.equal(downgraded.data.restartKind, 'downgrade');
+  assert.equal(downgraded.data.restartDirection, 'rollback', 'compat field keeps its old shape for old pages');
+  writeFileSync(join(packageDir, 'package.json'), JSON.stringify({ name: 'dsh-chatgpt-sub', type: 'module', version: '0.4.0' }));
   assert.equal((await request('setUpdateAuto', { enabled: false })).data.autoUpdate, false);
   assert.equal((await request('getUpdateState')).data.autoUpdate, false);
   assert.equal((await request('rollbackUpdate', {})).data.rollback.restored, false, 'missing backup is reported');

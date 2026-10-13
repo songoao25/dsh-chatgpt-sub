@@ -235,4 +235,48 @@ await check('unknown latest version never claims the plugin is up to date', asyn
   app.unmount()
 })
 
+// 2026-10-13：宿主报「磁盘比运行中旧」时，界面不能替用户说「已回滚」——用户根本没点过回滚。
+// 三分类：update（磁盘已是新版待重启）/ rollback（用户真回滚过）/ downgrade（磁盘被外部装成旧版）。
+await check('磁盘被外部换成旧版时，结论行说「磁盘版本比运行中旧」，绝不说「已回滚」', async () => {
+  const downgraded = { ...initial, runningVersion: '0.6.0', diskVersion: '0.5.0', latest: '0.6.0', pendingRestart: true, restartKind: 'downgrade' }
+  const app = await mounted({ handlers: { getUpdateState: () => downgraded } })
+  assert.match(app.text(), /ui\.updateDowngradePending/)
+  assert.match(app.text(), /0\.5\.0/)
+  assert.match(app.text(), /0\.6\.0/)
+  assert.doesNotMatch(app.text(), /ui\.updateRolledBack/)
+  assert.doesNotMatch(app.text(), /ui\.updatePendingRestart/)
+  app.unmount()
+})
+
+await check('只有用户真回滚过（restartKind = rollback）才显示「已回滚到上一版」', async () => {
+  const rolled = { ...initial, runningVersion: '0.6.0', diskVersion: '0.5.0', latest: '0.6.0', pendingRestart: true, restartKind: 'rollback' }
+  const app = await mounted({ handlers: { getUpdateState: () => rolled } })
+  assert.match(app.text(), /ui\.updateRolledBack/)
+  assert.match(app.text(), /0\.5\.0/)
+  assert.doesNotMatch(app.text(), /ui\.updateDowngradePending/)
+  app.unmount()
+})
+
+await check('磁盘已比运行中旧时不摆「回滚到上一版」按钮（没有可回滚的对象，点了也没意义）', async () => {
+  const downgraded = { ...initial, runningVersion: '0.6.0', diskVersion: '0.5.0', latest: '0.6.0', pendingRestart: true, restartKind: 'downgrade' }
+  const app = await mounted({ handlers: { getUpdateState: () => downgraded } })
+  assert.doesNotMatch(app.text(), /ui\.updateFallbackWhy/)
+  assert.doesNotMatch(app.text(), /ui\.updateRollback$/)
+  assert.doesNotMatch(app.text(), /ui\.updateRollback /)
+  app.unmount()
+})
+
+await check('宿主还是旧版（只有 restartDirection）：按回滚记录现场判，判不出就说降级而不是回滚', async () => {
+  const legacyProven = { ...initial, runningVersion: '0.6.0', diskVersion: '0.5.0', pendingRestart: true, restartDirection: 'rollback', holdVersion: '0.6.0' }
+  const proven = await mounted({ handlers: { getUpdateState: () => legacyProven } })
+  assert.match(proven.text(), /ui\.updateRolledBack/)
+  proven.unmount()
+
+  const legacyExternal = { ...initial, runningVersion: '0.6.0', diskVersion: '0.5.0', pendingRestart: true, restartDirection: 'rollback', holdVersion: null }
+  const external = await mounted({ handlers: { getUpdateState: () => legacyExternal } })
+  assert.match(external.text(), /ui\.updateDowngradePending/)
+  assert.doesNotMatch(external.text(), /ui\.updateRolledBack/)
+  external.unmount()
+})
+
 console.log(`${passed} update component behavior checks passed`)
