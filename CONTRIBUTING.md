@@ -63,9 +63,16 @@ Known deviations (checked 2026-10-13):
   repository moved from the action's inline `release-type: node` to a config file, because
   release-please requires a manifest at the tip of the branch before its first run. This is the
   documented bootstrap exception; version changes are bot-only from here on.
-- Published versions skip one number: npm has `0.5.1` and `0.5.3`, while `0.5.2` was tagged and
-  released on GitHub but never reached npm (its provenance check failed on a repository-URL case
-  mismatch, fixed in #44). That history is not rewritten; versions increment one by one from here on.
+- **One-off exception to the "never delete a tag" rule (2026-10-13).** `v0.5.2` was tagged and
+  released on GitHub but never reached npm: its provenance check failed on a repository-URL case
+  mismatch (fixed in #44). The maintainer had the tag and its GitHub Release removed on 2026-10-13
+  so the release list matches what npm actually has — the only time this rule has been waived, with
+  the reason recorded here. The `CHANGELOG.md` entry for 0.5.2 is kept, so source history is not
+  rewritten. From here on a release that goes wrong is corrected by publishing a new version, never
+  by deleting tags; and versions increment one by one (npm has `0.5.1` and `0.5.3`).
+- npm still lists an inert `0.0.0-stage` placeholder version, created when the first publish was
+  staged on 2026-10-13. Removing it needs an interactive 2FA unpublish by the maintainer; it does
+  not affect installs because `latest` points at the current release.
 - The read-back sentinel does not repair a stale `latest` dist-tag, because changing a dist-tag
   needs credentials and this repository publishes through OIDC without any. If npm drops `latest`,
   the sentinel fails loudly and a maintainer runs
