@@ -5,7 +5,8 @@
 //      pull_request 信任，会让「全自动发布」断成两截
 //   2) 发布 PR（同仓 release-please-- 分支）也在 auto-merge 覆盖范围内
 //   3) 需要时能手动补跑：release-please / ci 都保留 workflow_dispatch
-//   4) npm 发布认证走仓库 secret NPM_TOKEN（granular token，与底部信息栏插件一致）；
+//   4) npm 发布认证走仓库 secret DSH_CHATGPT_SUB_NPM_TOKEN（granular token，
+//      做法与底部信息栏插件一致，那边这个 secret 叫 NPM_TOKEN）；
 //      whoami 只能当提示——2026-08 起 Bypass-2FA 的 token 会被拒绝身份类查询，
 //      拿它当失败判据会把好 token 误判成坏 token（2026-10-10 的 v0.5.0 就是这么红的）
 import assert from 'node:assert/strict'
@@ -44,11 +45,13 @@ console.log('发布链契约测试全部通过')
 
 const publish = read('.github/workflows/publish-npm.yml');
 const verify = read('.github/workflows/verify-npm-release.yml');
-// 认证走仓库 secret NPM_TOKEN（2026-10-13 决定：与底部信息栏插件保持一致）。
+// 认证走仓库 secret DSH_CHATGPT_SUB_NPM_TOKEN（2026-10-13 决定：与底部信息栏插件同做法）。
 // npm 目前只支持 granular access token，CI 里没法过手机验证码，所以 token 必须
 // 勾 Bypass 2FA，并覆盖要发布的包（All Packages + Read and write）。
-assert.ok(publish.includes('NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}'),
-  'publish must authenticate with the NPM_TOKEN secret');
+assert.ok(publish.includes('NODE_AUTH_TOKEN: ${{ secrets.DSH_CHATGPT_SUB_NPM_TOKEN }}'),
+  'publish must authenticate with the DSH_CHATGPT_SUB_NPM_TOKEN secret');
+assert.ok(!publish.includes('secrets.NPM_TOKEN'),
+  'the stale NPM_TOKEN secret must not be referenced any more');
 assert.ok(!/^\s*id-token:\s*write\s*$/m.test(publish), 'token publishing must not request an OIDC id-token');
 assert.ok(!publish.includes('ACTIONS_ID_TOKEN_REQUEST_URL'), 'token publishing must not depend on OIDC');
 assert.ok(publish.includes('npm whoami'), 'token problems must still leave a diagnostic in the log');

@@ -13,7 +13,8 @@ name: Publish NPM package
 #
 # 公开可用性改由独立的 verify-npm-release.yml 后台读回校验，不阻塞这里。
 #
-# 认证：仓库 secret NPM_TOKEN（npm granular access token），与底部信息栏插件一致。
+# 认证：仓库 secret DSH_CHATGPT_SUB_NPM_TOKEN（npm granular access token）。
+# 做法与底部信息栏插件一致（那边这个 secret 叫 NPM_TOKEN）。
 # 生成方式：npm 网站 → Access Tokens → Generate New Token →
 #   Packages 权限选 "Read and write (publish and stage)"、覆盖 All Packages、
 #   勾上 "Bypass two-factor authentication"（CI 里没法输手机验证码，必须勾）。
@@ -71,10 +72,10 @@ jobs:
       - name: Check npm publishing token
         shell: bash
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.DSH_CHATGPT_SUB_NPM_TOKEN }}
         run: |
           if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "::error::NPM_TOKEN is missing. Add a granular npm access token (All Packages, Read and write, Bypass 2FA) as the repository secret NPM_TOKEN."
+            echo "::error::DSH_CHATGPT_SUB_NPM_TOKEN is missing. Add a granular npm access token (All Packages, Read and write, Bypass 2FA) as the repository secret DSH_CHATGPT_SUB_NPM_TOKEN."
             exit 1
           fi
           # 不把 whoami 当失败条件：Bypass-2FA 的 granular token 从 2026-08 起会被
@@ -91,7 +92,7 @@ jobs:
         if: ${{ inputs.verify_only != true }}
         shell: bash
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.DSH_CHATGPT_SUB_NPM_TOKEN }}
         run: |
           package_name="$(node -p "require('./package.json').name")"
           version="$(node -p "require('./package.json').version")"
@@ -120,6 +121,6 @@ jobs:
 
           # npm 用 404 掩盖「无权限」，所以 401/404 基本都指向 token 本身。
           if printf '%s' "$output" | grep -Eq "E404|E401|40[13] (Not Found|Forbidden|Unauthorized)"; then
-            echo "::error::npm 拒绝了这次发布（401/404）。多半是 NPM_TOKEN 的问题：没有覆盖这个包、没勾 Bypass two-factor authentication、或已过期。请重新生成 granular token（All Packages + Read and write (publish and stage) + Bypass 2FA）并替换仓库 secret。"
+            echo "::error::npm 拒绝了这次发布（401/404）。多半是 DSH_CHATGPT_SUB_NPM_TOKEN 的问题：没有覆盖这个包、没勾 Bypass two-factor authentication、或已过期。请重新生成 granular token（All Packages + Read and write (publish and stage) + Bypass 2FA）并替换仓库 secret。"
           fi
           exit "$status"
