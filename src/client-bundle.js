@@ -57,6 +57,26 @@ module.exports = {
       return typeof member === 'function' || (member && typeof member === 'object') ? member : null;
     }
     var NativeButton = native('Button');
+    // 状态标签与状态点：宿主 Tag 自带 success/danger 色调、StateDot 自带 done/error/…
+    // 这两种正是状态行要表达的语义，不再自绘（自绘版本见 .cgpt-status--* 兜底）。
+    var NativeTag = native('Tag');
+    var NativeStateDot = native('StateDot');
+    // 自动/手动是「二选一」，宿主对应用 SegmentedControl（tablist + 滑动指示块 + 方向键走位）。
+    var NativeSegmentedControl = native('SegmentedControl');
+    // 下拉选择：浏览器原生 <select> 是操作系统自带的古老控件（灰色直角框 + 系统菜单），
+    // 与 DSH 观感脱节，所以优先用宿主原生 Menu（锚点 = 原生 Button，列表 = 原生菜单卡片），
+    // 取不到 Menu 才退回 <select>。同样取自兄弟插件（dsh-bottom-info-bar）时区选择的先例。
+    var NativeMenu = native('Menu');
+    // 破坏性操作确认走宿主原生 RiskConfirmation（勾选后才可点确认的弹窗），
+    // 取不到退回 window.confirm——两条路径都保证「未确认不执行」。
+    var NativeRiskConfirmation = native('RiskConfirmation');
+    // 结果提示（绑定失败、解绑失败）走宿主原生 Toast，取不到退回 alert。
+    var NativeToast = native('Toast');
+    // 折叠/下拉箭头取自 primitives；导出名跟着宿主版本变过（Regular/Medium 档位 vs 旧的 14），
+    // 都取不到时退回 CSS 画的箭头。绝不把 undefined 交给 React.createElement。
+    var NativeChevron = PRIMITIVES
+      ? (PRIMITIVES.IconChevronDownOutlineRegular || PRIMITIVES.IconChevronDownOutlineMedium || null)
+      : null;
     // h 必须支持多 children（React.createElement 接受可变参数；组件多处传多个子元素）
     function h(tag, props) {
       var args = [tag, props];
@@ -123,7 +143,18 @@ module.exports = {
       style.dataset.pluginCss = id;
       style.textContent = `
         /* 宽度上限交给宿主：.X_2TxG_page > * 已把内容钉在 min(100%, 960px)，这里再写死 760px 会在宽视口下压窄内容、右侧控件够不到宿主右边界。 */
-        .cgpt-language { max-width: 100%; min-width: 0; font: inherit; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-background-primary, transparent); border: 1px solid var(--dsw-alias-border-l3); border-radius: 6px; padding: 5px 8px; }
+        /* 语言选择器：宿主原生 Menu 弹层（锚点 = 原生 outline 按钮）。下面这几条只做布局，
+           外观（边框/圆角/hover/焦点/禁用）全部由宿主 Button 维护。 */
+        .cgpt-selectTrigger { max-width: 100%; }
+        .cgpt-selectTrigger--open { background: var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,0.08)); }
+        .cgpt-selectLabel { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+        .cgpt-selectValue { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .cgpt-selectChevron { flex: none; color: var(--dsw-alias-label-tertiary); }
+        .cgpt-selectChevronGlyph { flex: none; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid currentColor; color: var(--dsw-alias-label-tertiary); }
+        /* 兜底（宿主没有 Menu 时）：浏览器 <select>，度量照 settings-form/fields.module.css 的 .input
+           （34px / radius md / 0.5px border-l4 / bg-layer-3 / 13px），与设置页里的输入框同高同形。 */
+        .cgpt-language { max-width: 100%; min-width: 0; height: 34px; padding: 0 12px; font: inherit; font-size: 13px; line-height: 1.5; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-3); border: 0.5px solid var(--dsw-alias-border-l4); border-radius: var(--dsw-radius-md, 12px); }
+        .cgpt-language:focus-visible { outline: none; border-color: var(--dsw-alias-state-business-primary); }
         .cgpt-page { display: flex; flex-direction: column; width: 100%; max-width: 100%; min-width: 0; gap: 12px; color: var(--dsw-alias-label-primary); }
         .cgpt-page, .cgpt-page * { box-sizing: border-box; }
         /* 行 = 原生详情页的 .X_2TxG_row：12px 2px 内边距 + .5px 下边线（末行无线），
@@ -136,19 +167,22 @@ module.exports = {
         .cgpt-rowTitle { display: flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 500; line-height: 20px; color: var(--dsw-alias-label-primary); }
         .cgpt-rowDesc { font-size: 11.5px; line-height: 16px; color: var(--dsw-alias-label-tertiary); overflow-wrap: anywhere; }
         .cgpt-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; margin-left: auto; }
-        .cgpt-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--dsw-alias-state-success-primary, #087f5b); }
-        .cgpt-dot--error { background: var(--dsw-alias-state-error-primary, #d92d20); }
-        /* 状态药丸：与 .cgpt-btn 完全同一套几何（28px 高 / 14px 圆角 / 10px 内边距 / 12px 字），
-           只是不可点——保证状态、重新绑定、解绑三个元素同屏等高对齐。 */
-        .cgpt-statusPill { display: inline-flex; align-items: center; gap: 6px; height: 28px; border-radius: 14px; padding: 0 10px; font-size: 12px; font-weight: 400; line-height: 18px; white-space: nowrap; }
-        .cgpt-statusPill--success { color: var(--dsw-alias-state-success-primary, #087f5b); background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #087f5b) 10%, transparent); }
-        .cgpt-statusPill--danger { color: var(--dsw-alias-state-error-primary, #d92d20); background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #d92d20) 10%, transparent); }
-        /* 按钮：宿主有原生 Button 时由其接管；这份只是兜底几何（Button.module.css .sm）。 */
-        .cgpt-btn { appearance: none; font: inherit; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 28px; border: 0.5px solid var(--dsw-alias-border-l3); color: var(--dsw-alias-label-primary); background: transparent; border-radius: 14px; padding: 0 10px; font-size: 12px; font-weight: 400; line-height: 18px; transition: background-color 120ms ease, border-color 120ms ease; }
+        /* 状态标签：走宿主原生 Tag（11px 胶囊，tone=success/danger）+ StateDot。
+           2026-10-13 改：宿主 Tag 现在自带 success/danger 两点色（10% color-mix），
+           正是当年手抄的那套配色，所以自绘药丸与圆点整体删掉，只留一个 gap。 */
+        .cgpt-status { gap: 6px; }
+        /* 兜底状态点：宿主 StateDot 是 10px 槽 + 6px currentColor 实心核，这里取核的尺寸。 */
+        .cgpt-statusDot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+        /* 兜底（宿主没 primitives 时）：几何与配色照抄 Tag.module.css 的 success/danger。 */
+        .cgpt-status--success { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 1px 8px; font-size: 11px; line-height: 17px; font-weight: 500; white-space: nowrap; color: var(--dsw-alias-state-success-primary, #087f5b); background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #087f5b) 10%, transparent); }
+        .cgpt-status--danger { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 1px 8px; font-size: 11px; line-height: 17px; font-weight: 500; white-space: nowrap; color: var(--dsw-alias-state-error-primary, #d92d20); background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #d92d20) 10%, transparent); }
+        /* 按钮兜底几何 = 宿主 primitives Button.module.css 的 .sm + .outline：
+           28px 高 / radius-sm / 0 10px / 12·18 / 0.5px border-l3。走原生 Button 时这份不生效。 */
+        .cgpt-btn { appearance: none; font: inherit; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 28px; border: 0.5px solid var(--dsw-alias-border-l3); color: var(--dsw-alias-label-primary); background: transparent; border-radius: var(--dsw-radius-sm, 8px); padding: 0 10px; font-size: 12px; font-weight: 400; line-height: 18px; transition: background-color 120ms ease, border-color 120ms ease; }
         .cgpt-btn:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,0.08)); }
-        .cgpt-btn:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary); outline-offset: 2px; }
-        .cgpt-btn:disabled { opacity: 0.4; cursor: default; }
-        /* 危险按钮照原生 .X_2TxG_danger：错误色文字 + 30% 错误色描边 + 8% 错误色 hover 底。 */
+        .cgpt-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        /* 危险按钮：宿主 Button 没有 danger 变体（所以这条在原生路径下也保留）。
+           配色照原生 .X_2TxG_danger：错误色文字 + 30% 错误色描边 + 8% 错误色 hover 底。 */
         .cgpt-btn--danger { color: var(--dsw-alias-state-error-primary, #d92d20); border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary, #d92d20) 30%, transparent); }
         .cgpt-btn--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #d92d20) 8%, transparent); }
         /* 错误提示：照原生 failure/reason 形态 */
@@ -159,8 +193,10 @@ module.exports = {
         .cgpt-alertText { flex: 1 1 auto; min-width: 0; }
         .cgpt-note { width: 100%; margin: 0; padding: 0; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
         .cgpt-updates { width: 100%; min-width: 0; border-top: 1px solid var(--dsw-alias-border-primary, rgba(128,128,128,0.2)); padding-top: 16px; }
-        .cgpt-updateMode { display: flex; flex-wrap: wrap; gap: 4px; }
-        .cgpt-btn[aria-checked="true"] { background: var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,0.08)); border-color: var(--dsw-alias-brand-primary); }
+        /* 自动 / 手动是「二选一」——用宿主原生 SegmentedControl（tablist + 滑动指示块）。
+           .cgpt-mode 只兜底：宿主取不到该原子时退回两个按钮并排，选中态用描边 + hover 底表示。 */
+        .cgpt-mode { display: flex; flex-wrap: wrap; gap: 4px; }
+        .cgpt-mode .cgpt-btn[aria-checked="true"] { background: var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,0.08)); border-color: var(--dsw-alias-brand-primary); }
         .cgpt-loading { margin: 0; padding: 0; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
         @media (max-width: 600px) { .cgpt-row { align-items: flex-start; } .cgpt-controls { justify-content: flex-start; margin-left: 0; } }
         @media (prefers-reduced-motion: reduce) { .cgpt-btn { transition: none; } }
@@ -169,17 +205,22 @@ module.exports = {
     }
     installStyles();
 
-    // 按钮：优先宿主原生 Button（.sm 与插件详情页的「卸载」同一套几何）
+    // 按钮：优先宿主原生 Button（.sm + .outline，与插件详情页的「卸载」同一套几何）。
+    // 【不覆盖原生几何】走原生时只额外加 .cgpt-btn--danger（宿主没有 danger 变体），
+    // 绝不把 .cgpt-btn 的兜底几何叠到原生按钮上——那会用 border-radius 14px 顶掉
+    // Button.module.css .sm 的 var(--dsw-radius-sm) 8px，同一页里两种圆角。
     function cgptButton(props) {
-      var className = 'cgpt-btn' + (props.className ? ' ' + props.className : '');
+      var danger = props.className ? props.className : '';
       if (NativeButton) {
         return h(NativeButton, {
           type: 'button',
           variant: props.variant || 'outline',
           size: 'sm',
-          className: className,
+          className: danger || undefined,
           role: props.role,
           'aria-checked': props.checked,
+          'aria-label': props.ariaLabel,
+          title: props.title,
           disabled: props.disabled,
           onClick: props.onClick,
           key: props.key,
@@ -187,13 +228,100 @@ module.exports = {
       }
       return h('button', {
         type: 'button',
-        className: className,
+        className: ('cgpt-btn' + (danger ? ' ' + danger : '')),
         role: props.role,
         'aria-checked': props.checked,
+        'aria-label': props.ariaLabel,
+        title: props.title,
         disabled: props.disabled,
         onClick: props.onClick,
         key: props.key,
       }, props.children);
+    }
+
+    // 状态标签：宿主原生 Tag + StateDot；取不到就退回同几何同配色的 .cgpt-status--*。
+    function cgptStatus(props) {
+      var dot = props.state
+        ? (NativeStateDot
+          ? h(NativeStateDot, { state: props.state, key: 'dot' })
+          : h('span', { className: 'cgpt-statusDot', key: 'dot' }))
+        : null;
+      var children = dot === null ? props.children : [dot, props.children];
+      if (NativeTag) return h(NativeTag, { tone: props.tone, className: 'cgpt-status', key: props.key }, children);
+      return h('span', { className: 'cgpt-status cgpt-status--' + props.tone, key: props.key }, children);
+    }
+
+    // 二选一控件：宿主原生 SegmentedControl；取不到就退回一组 role=radio 的按钮
+    // （兜底路径同样受 .cgpt-mode 约束，交互语义保持「选中项 = aria-checked=true」）。
+    function cgptMode(props) {
+      if (NativeSegmentedControl) {
+        return h(NativeSegmentedControl, {
+          id: props.id,
+          value: props.value,
+          options: props.options,
+          onChange: props.onChange,
+          label: props.label,
+          disabled: props.disabled,
+          key: props.key,
+        });
+      }
+      return hList('div', { className: 'cgpt-mode', role: 'radiogroup', 'aria-label': props.label, key: props.key }, props.options.map(function (option) {
+          return cgptButton({
+            key: option.value,
+            role: 'radio',
+            checked: option.value === props.value,
+            disabled: props.disabled,
+            onClick: function () { props.onChange(option.value); },
+            children: option.label,
+          });
+        }));
+    }
+
+    // 下拉选择：宿主原生 Menu 弹层（锚点 = 原生 outline 按钮，列表 = 原生菜单卡片）。
+    // 取不到 Menu 时才退回浏览器 <select>——那是操作系统自带控件，只是可用性兜底，不是设计目标。
+    function cgptSelect(props) {
+      var openPair = React.useState(false), open = openPair[0], setOpen = openPair[1];
+      if (!NativeMenu) {
+        return h('select', {
+          id: props.id,
+          className: 'cgpt-language',
+          value: props.value,
+          'aria-label': props.label,
+          onChange: function (event) { props.onChange(event.target.value); },
+          key: props.key,
+        }, props.options.map(function (option) {
+          return h('option', { key: option.value, value: option.value }, option.label);
+        }));
+      }
+      var current = null;
+      for (var i = 0; i < props.options.length; i++) {
+        if (props.options[i].value === props.value) current = props.options[i];
+      }
+      var trigger = cgptButton({
+        variant: 'outline',
+        className: 'cgpt-selectTrigger' + (open ? ' cgpt-selectTrigger--open' : ''),
+        ariaLabel: props.label,
+        title: props.label,
+        onClick: function () { setOpen(!open); },
+        children: hList('span', { className: 'cgpt-selectLabel' }, [
+          h('span', { className: 'cgpt-selectValue', key: 'v' }, current ? current.label : props.value),
+          NativeChevron
+            ? h(NativeChevron, { key: 'c', size: 14, className: 'cgpt-selectChevron' })
+            : h('span', { key: 'c', className: 'cgpt-selectChevronGlyph', 'aria-hidden': 'true' }),
+        ]),
+      });
+      return h(NativeMenu, {
+        open: open,
+        anchor: trigger,
+        items: props.options.map(function (option) { return { id: option.value, label: option.label }; }),
+        selectedId: props.value,
+        onSelect: function (id) { setOpen(false); props.onChange(id); },
+        onClose: function () { setOpen(false); },
+        align: 'start',
+        portal: true,
+        className: 'cgpt-select',
+        key: props.key,
+      });
     }
 
     function SubscriptionUpdates() {
@@ -235,13 +363,24 @@ module.exports = {
           return null;
         }).finally(function () { busy.current = false; if (active.current) setPhase(null); });
       }
-      function confirmInstall(version) {
-        return typeof version === 'string' && version.length > 0 && confirm(t('ui.updateConfirm', { version: version }));
+      var pendingPair = React.useState(null), pendingInstall = pendingPair[0], setPendingInstall = pendingPair[1];
+      var ackPair = React.useState(false), installAck = ackPair[0], setInstallAck = ackPair[1];
+      function runInstall(version, force) {
+        return action('installUpdate', force ? { force: true } : null, 'install');
+      }
+      // 安装前确认：宿主有原生 RiskConfirmation 就弹原生弹窗（勾选后才能点确认），
+      // 取不到才退回 window.confirm——两条路径都保证「不确认不安装」。
+      function confirmInstall(version, force) {
+        if (typeof version !== 'string' || version.length === 0) return false;
+        if (NativeRiskConfirmation) { setInstallAck(false); setPendingInstall({ version: version, force: !!force }); return false; }
+        if (!confirm(t('ui.updateConfirm', { version: version }))) return false;
+        runInstall(version, force);
+        return true;
       }
       function check() {
         action('checkUpdate', null, 'check').then(function (result) {
-          if (active.current && result && result.available && !result.pendingRestart && result.holdVersion !== result.latest && confirmInstall(result.latest)) {
-            action('installUpdate', null, 'install');
+          if (active.current && result && result.available && !result.pendingRestart && result.holdVersion !== result.latest) {
+            confirmInstall(result.latest, false);
           }
         });
       }
@@ -289,7 +428,7 @@ module.exports = {
           facts.push(t('ui.versionLastCheck', { time: relative }));
         }
         var buttons = state.disabled ? null : [cgptButton({ key: 'check', disabled: !!phase, onClick: check, children: t(phase === 'check' ? 'ui.updateChecking' : 'ui.updateCheckNow') })];
-        if (buttons && state.available && latest && !held && !state.pendingRestart) buttons.push(cgptButton({ key: 'install', disabled: !!phase, onClick: function () { if (confirmInstall(latest)) action('installUpdate', null, 'install'); }, children: t('ui.updateInstallNow', { version: latest }) }));
+        if (buttons && state.available && latest && !held && !state.pendingRestart) buttons.push(cgptButton({ key: 'install', disabled: !!phase, onClick: function () { confirmInstall(latest, false); }, children: t('ui.updateInstallNow', { version: latest }) }));
         content.push(row('state', statusText, state.disabled ? t('ui.updateDisabledWhy') : facts.join(' · '), buttons));
         if (!state.disabled && state.lastError) {
           var errors = { 'incomplete-download': 'ui.updateErrorIncompleteDownload', 'integrity-mismatch': 'ui.updateErrorIntegrityMismatch', 'download-failed': 'ui.updateErrorDownloadFailed', 'too-large': 'ui.updateErrorTooLarge', 'payload-mismatch': 'ui.updateErrorPayloadMismatch', 'payload-unsafe': 'ui.updateErrorPayloadUnsafe', 'check-failed': 'ui.updateErrorCheckFailed' };
@@ -297,8 +436,18 @@ module.exports = {
         }
         if (!state.disabled) {
           content.push(row('mode', t('ui.autoUpdateTitle'), t(state.autoUpdate === false ? 'ui.updateModeManualDesc' : 'ui.updateModeAutoDesc'), [
-            h('div', { className: 'cgpt-updateMode', role: 'radiogroup', 'aria-label': t('ui.autoUpdateTitle'), key: 'modes' },
-              ['auto', 'manual'].map(function (mode) { return cgptButton({ key: mode, disabled: !!phase, role: 'radio', checked: (state.autoUpdate === false ? 'manual' : 'auto') === mode, onClick: function () { action('setUpdateAuto', { enabled: mode === 'auto' }, 'mode'); }, children: t(mode === 'auto' ? 'ui.updateModeAuto' : 'ui.updateModeManual') }); }))
+            cgptMode({
+              key: 'modes',
+              id: 'cgpt-update-mode',
+              label: t('ui.autoUpdateTitle'),
+              value: state.autoUpdate === false ? 'manual' : 'auto',
+              disabled: !!phase,
+              options: [
+                { value: 'auto', label: t('ui.updateModeAuto') },
+                { value: 'manual', label: t('ui.updateModeManual') },
+              ],
+              onChange: function (mode) { action('setUpdateAuto', { enabled: mode === 'auto' }, 'mode'); },
+            })
           ]));
           // 逃生门只在新版已装好但还没重启（restartKind === 'update'，此时退回最省事）或上次更新失败时出现。
           // 磁盘已经比运行中旧（'rollback' / 'downgrade'）时不再显示：回滚过的那次 pendingVersion 已清空，
@@ -306,15 +455,32 @@ module.exports = {
           var rollback = restartKind === 'update' || !!state.lastError;
           if (rollback || held) content.push(row('fallback', null, t(rollback ? 'ui.updateFallbackWhy' : 'ui.updateHoldWhy'), [
             rollback ? cgptButton({ key: 'rollback', disabled: !!phase, onClick: function () { action('rollbackUpdate', null, 'rollback'); }, children: t('ui.updateRollback') }) : null,
-            held ? cgptButton({ key: 'force', disabled: !!phase, onClick: function () { if (confirmInstall(state.holdVersion)) action('installUpdate', { force: true }, 'install'); }, children: t('ui.updateAllowHeld', { version: state.holdVersion }) }) : null,
+            held ? cgptButton({ key: 'force', disabled: !!phase, onClick: function () { confirmInstall(state.holdVersion, true); }, children: t('ui.updateAllowHeld', { version: state.holdVersion }) }) : null,
           ]));
         }
       } else content.push(h('p', { className: 'cgpt-loading', key: 'loading' }, t(error ? 'ui.versionUnavailable' : 'ui.loading')));
       if (error) content.push(h('p', { className: 'cgpt-alert cgpt-alert--error', role: 'alert', key: 'error' }, t(error)));
-      return h('section', { className: 'cgpt-updates', 'aria-labelledby': 'cgpt-update-title' },
+      // 安装确认弹窗：宿主原生 RiskConfirmation（勾选前确认按钮为禁用态）。
+      var installDialog = pendingInstall && NativeRiskConfirmation ? h(NativeRiskConfirmation, {
+        open: true,
+        title: t('ui.updateConfirmTitle'),
+        description: t('ui.updateConfirm', { version: pendingInstall.version }),
+        acknowledgeLabel: t('ui.acknowledgeLabel'),
+        cancelLabel: t('ui.dialogCancel'),
+        closeLabel: t('ui.dialogCancel'),
+        confirmLabel: t('ui.dialogConfirm'),
+        acknowledged: installAck,
+        disabled: !!phase,
+        onAcknowledgedChange: setInstallAck,
+        onCancel: function () { setPendingInstall(null); },
+        onConfirm: function () { var requested = pendingInstall; setPendingInstall(null); runInstall(requested.version, requested.force); },
+      }) : null;
+      return hList('section', { className: 'cgpt-updates', 'aria-labelledby': 'cgpt-update-title' }, [
         h('h2', { id: 'cgpt-update-title', className: 'cgpt-rowTitle' }, t('ui.versionAndUpdateTitle')),
         h('p', { className: 'cgpt-rowDesc' }, t('ui.versionAndUpdateDesc')),
-        hList('div', { className: 'cgpt-list' }, content));
+        hList('div', { className: 'cgpt-list' }, content),
+        installDialog,
+      ]);
     }
 
     // ---------- 插件配置页组件 ----------
@@ -328,6 +494,17 @@ module.exports = {
       var pollRef = React.useRef(null);
       var languageState = React.useState(0);
       var languageErrorState = React.useState(null);
+      var toastPair = React.useState(null);
+      var toast = toastPair[0], setToast = toastPair[1];
+      var unbindPair = React.useState(false);
+      var unbindOpen = unbindPair[0], setUnbindOpen = unbindPair[1];
+      var unbindAckPair = React.useState(false);
+      var unbindAck = unbindAckPair[0], setUnbindAck = unbindAckPair[1];
+      // 结果提示：宿主原生 Toast（失败文案自带警示图标）；取不到才退回 alert。
+      var notify = React.useCallback(function (text) {
+        if (NativeToast) setToast({ id: Date.now(), text: text });
+        else alert(text);
+      }, []);
       React.useEffect(function () {
         return languageRuntime.subscribe(function () { languageState[1](function (value) { return value + 1; }); });
       }, []);
@@ -356,7 +533,7 @@ module.exports = {
         setAuthorizing(true);
         rpc('startCodexOAuth', { language: languageRuntime.locale() }).then(function (res) {
           if (!res.ok) {
-            alert(t('ui.startFailed') + (errorText(res.error) || t('ui.unknownReason')));
+            notify(t('ui.startFailed') + (errorText(res.error) || t('ui.unknownReason')));
             setAuthorizing(false);
             return;
           }
@@ -379,18 +556,22 @@ module.exports = {
             });
           }, 2000);
         }).catch(function (e) {
-          alert(t('ui.startError') + e.message);
+          notify(t('ui.startError') + e.message);
           setAuthorizing(false);
         });
-      }, [authorizing]);
+      }, [authorizing, notify]);
 
-      // 解绑
-      var handleUnbind = React.useCallback(function () {
-        if (!confirm(t('ui.unbindConfirm'))) return;
+      // 解绑：宿主有原生 RiskConfirmation 就先弹原生确认（勾选后才能点确认），
+      // 取不到才退回 window.confirm——两条路径都保证「未确认不解绑」。
+      var runUnbind = React.useCallback(function () {
         rpc('unbindCodex').then(function (res) {
-          if (res.ok) { load(); } else { alert(t('ui.unbindFailed') + (errorText(res.error) || t('ui.retry'))); }
+          if (res.ok) { load(); } else { notify(t('ui.unbindFailed') + (errorText(res.error) || t('ui.retry'))); }
         });
-      }, [load]);
+      }, [load, notify]);
+      var handleUnbind = React.useCallback(function () {
+        if (NativeRiskConfirmation) { setUnbindAck(false); setUnbindOpen(true); return; }
+        if (confirm(t('ui.unbindConfirm'))) runUnbind();
+      }, [runUnbind]);
 
       // 格式化时间戳
       function fmtTime(ms) {
@@ -412,19 +593,24 @@ module.exports = {
       // 页脚只讲页面级事实（隐私）；「绑定会打开登录页」「解绑会删本机登录信息」
       // 各在状态行、确认弹窗里说一次，不重复。
       var note = h('p', { className: 'cgpt-note' }, t('ui.privacyNote'));
+      var languageChoices = [{ value: 'auto', label: t('language.auto') }].concat(languageRuntime.options().map(function (language) {
+        return { value: language.id, label: language.label };
+      }));
       var languageRow = h('div', { className: 'cgpt-row', key: 'language' },
         h('div', { className: 'cgpt-rowText' },
-          h('label', { className: 'cgpt-rowTitle', htmlFor: 'cgpt-language' }, t('language.title')),
+          h('div', { className: 'cgpt-rowTitle' }, t('language.title')),
           h('div', { className: 'cgpt-rowDesc' }, t('language.description'))),
         h('div', { className: 'cgpt-controls' },
-          h('select', {
-            id: 'cgpt-language', value: languageRuntime.preference(), className: 'cgpt-language',
-            onChange: function (event) {
-              try { languageRuntime.setPreference(event.target.value); languageErrorState[1](null); }
+          cgptSelect({
+            id: 'cgpt-language',
+            value: languageRuntime.preference(),
+            label: t('language.title'),
+            options: languageChoices,
+            onChange: function (value) {
+              try { languageRuntime.setPreference(value); languageErrorState[1](null); }
               catch { languageErrorState[1](t('language.saveFailed')); }
             },
-          }, h('option', { value: 'auto' }, t('language.auto')),
-            languageRuntime.options().map(function (language) { return h('option', { key: language.id, value: language.id }, language.label); }))));
+          })));
 
 
       if (!status) {
@@ -460,10 +646,13 @@ module.exports = {
       var statusControls = !bound
         ? [cgptButton({ key: 'auth', onClick: handleAuthorize, disabled: authorizing, children: bindLabel })]
         : [
-          h('span', { className: 'cgpt-statusPill ' + (needsAttention ? 'cgpt-statusPill--danger' : 'cgpt-statusPill--success'), key: 'state' },
-            h('span', { className: 'cgpt-dot' + (needsAttention ? ' cgpt-dot--error' : '') }),
-            needsAttention ? t('ui.needsAttention') : t('ui.connected')),
-          cgptButton({ key: 'reauth', className: '', onClick: handleAuthorize, disabled: authorizing, children: authorizing ? t('ui.openingBrowser') : t('ui.rebind') }),
+          cgptStatus({
+            key: 'state',
+            tone: needsAttention ? 'danger' : 'success',
+            state: needsAttention ? 'error' : 'done',
+            children: needsAttention ? t('ui.needsAttention') : t('ui.connected'),
+          }),
+          cgptButton({ key: 'reauth', onClick: handleAuthorize, disabled: authorizing, children: authorizing ? t('ui.openingBrowser') : t('ui.rebind') }),
           cgptButton({ key: 'unbind', className: 'cgpt-btn--danger', onClick: handleUnbind, children: t('ui.unbind') }),
         ];
 
@@ -489,12 +678,33 @@ module.exports = {
           h('span', { className: 'cgpt-alertText' }, errorMsg)));
       }
 
+      var unbindDialog = unbindOpen && NativeRiskConfirmation ? h(NativeRiskConfirmation, {
+        open: true,
+        title: t('ui.unbindConfirmTitle'),
+        description: t('ui.unbindConfirm'),
+        acknowledgeLabel: t('ui.acknowledgeLabel'),
+        cancelLabel: t('ui.dialogCancel'),
+        closeLabel: t('ui.dialogCancel'),
+        confirmLabel: t('ui.dialogConfirm'),
+        acknowledged: unbindAck,
+        onAcknowledgedChange: setUnbindAck,
+        onCancel: function () { setUnbindOpen(false); },
+        onConfirm: function () { setUnbindOpen(false); runUnbind(); },
+      }) : null;
+      var toastNode = toast && NativeToast ? h(NativeToast, {
+        key: toast.id,
+        text: toast.text,
+        onDone: function () { setToast(null); },
+      }) : null;
+
       return hList('div', { className: 'cgpt-page' }, [
         hList('div', { className: 'cgpt-list' }, rows),
         alerts.length > 0 ? hList('div', { className: 'cgpt-alerts' }, alerts) : null,
         languageErrorState[0] ? h('p', { className: 'cgpt-alert cgpt-alert--error', role: 'alert' }, languageErrorState[0]) : null,
         h(SubscriptionUpdates),
         note,
+        unbindDialog,
+        toastNode,
       ]);
     }
 

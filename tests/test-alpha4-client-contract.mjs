@@ -66,20 +66,46 @@ assert.doesNotMatch(source, /\.cgpt-(?:intro|note|alerts|loading) \{[^}]*padding
 // 错误照原生 failure / reason 形态，而不是把「错误」单占一行再甩出正文
 assert.match(source, /\.cgpt-alert--error \{[^}]*display: flex; align-items: center; gap: 10px; color: var\(--dsw-alias-state-error-primary[^}]*overflow-wrap: anywhere; white-space: pre-wrap;/, 'error must use the native failure/reason form')
 // 没有用到的样式一律不留（写死的主按钮/警示条几何是死代码）
-assert.doesNotMatch(source, /\.cgpt-(?:btn--primary|alert--warning|alertActions|note--pre|status|section|sectionCount)\b/, 'unused style rules must be deleted rather than kept as dead code')
+assert.doesNotMatch(source, /\.cgpt-(?:btn--primary|alert--warning|alertActions|note--pre|section|sectionCount)\b/, 'unused style rules must be deleted rather than kept as dead code')
 assert.doesNotMatch(source, /cgpt-alertActions/, 'the error alert must not carry a second copy of the status row controls')
-assert.match(source, /\.cgpt-btn \{[^}]*display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 28px; border: 0\.5px solid var\(--dsw-alias-border-l3\)[^}]*border-radius: 14px; padding: 0 10px; font-size: 12px; font-weight: 400;/, 'buttons must use the native small capsule geometry as a fallback')
+// 2026-10-13：宿主 primitives 的 .sm 现在是 28px 高 + var(--dsw-radius-sm)=8px 圆角
+//（Button.module.css），不再是 14px 胶囊。兜底几何必须跟着走，否则原生按钮的圆角会被顶掉。
+assert.match(source, /\.cgpt-btn \{[^}]*display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 28px; border: 0\.5px solid var\(--dsw-alias-border-l3\)[^}]*border-radius: var\(--dsw-radius-sm, 8px\); padding: 0 10px; font-size: 12px; font-weight: 400;/, 'button fallback must copy the host .sm + .outline geometry')
+assert.doesNotMatch(source, /\.cgpt-btn \{[^}]*border-radius: 14px/, 'button fallback must not hard-code a 14px pill radius')
+// 走原生 Button 时只允许带 danger 变体类，不能把 .cgpt-btn 的兜底几何叠上去（那会覆盖原生圆角）
+assert.match(source, /className: danger \|\| undefined,/, 'the native Button must receive only the danger class')
+assert.doesNotMatch(source, /className: className,/, 'the native Button must not receive the fallback .cgpt-btn class')
 assert.match(source, /@media \(prefers-reduced-motion: reduce\)/, 'motion must respect the reduced-motion preference')
 assert.doesNotMatch(source, /cardStyle|btnPrimary|btnSecondary|btnDanger/, 'the inline card style objects must be gone')
 assert.doesNotMatch(source, /style:\s*\{/, 'no inline style props may remain in the page component')
-// 原生组件接入：宿主 primitives 存在时必须走原生 Button/Switch/Tag/StateDot，缺成员时降级
+// 原生组件接入：宿主 primitives 存在时必须走原生 Button/Tag/StateDot/SegmentedControl，缺成员时降级。
+// 2026-10-13 改口：自绘状态药丸（与 28px 按钮等高）当年是权宜之计；宿主 Tag 现在自带
+// success/danger 色调、StateDot 自带 done/error，正是状态行要表达的语义，于是改回原生原子。
 assert.match(source, /require\('@deepseek-ai\/dsh-client-ui-primitives'\)/, 'client must try to load the host primitives')
 assert.match(source, /var NativeButton = native\('Button'\)/, 'native Button must be resolved through a safety-checked accessor')
-// 状态指示不再用宿主 Tag/StateDot（其几何与 28px 按钮不等高，同屏三个高度）——
-// 改为与按钮同一套几何的自绘状态药丸，这里锁定该约束。
-assert.doesNotMatch(source, /native\('Tag'\)|native\('StateDot'\)/, 'status pill must not use host Tag/StateDot (unequal height against 28px buttons)')
-assert.match(source, /\.cgpt-statusPill \{[^}]*height: 28px; border-radius: 14px; padding: 0 10px; font-size: 12px;/, 'status pill must share the exact button geometry (28px/14px/10px/12px)')
-assert.doesNotMatch(source, /cgptStatusTag|cgptStateDot/, 'legacy tag/dot helpers must be gone')
+assert.match(source, /var NativeTag = native\('Tag'\)/, 'status must use the host Tag atom')
+assert.match(source, /var NativeStateDot = native\('StateDot'\)/, 'status must use the host StateDot atom')
+assert.match(source, /var NativeSegmentedControl = native\('SegmentedControl'\)/, 'the update-mode switch must use the host SegmentedControl atom')
+assert.match(source, /function cgptStatus\(props\)/, 'status must be rendered by a native-first helper')
+assert.match(source, /function cgptMode\(props\)/, 'the mode switch must be rendered by a native-first helper')
+// 兜底（取不到原子时）必须抄宿主 Tag.module.css 的 11px 胶囊几何，而不是还原成 28px 自绘药丸
+assert.match(source, /\.cgpt-status--success \{[^}]*border-radius: 999px; padding: 1px 8px; font-size: 11px; line-height: 17px; font-weight: 500;/, 'status fallback must copy the native Tag geometry')
+assert.doesNotMatch(source, /cgpt-statusPill|cgpt-dot/, 'the hand-drawn status pill and dot must be gone (host Tag/StateDot supersede them)')
+assert.doesNotMatch(source, /cgpt-updateMode/, 'the hand-rolled update-mode button row must be gone (SegmentedControl supersedes it)')
+// 语言选择器：宿主原生 Menu 弹层优先，<select> 只作兜底；兜底度量照 settings-form .input
+assert.match(source, /var NativeMenu = native\('Menu'\)/, 'the language picker must use the host Menu atom')
+assert.match(source, /function cgptSelect\(props\)/, 'the language picker must go through a native-first helper')
+assert.match(source, /cgptSelect\(\{\s*\n\s*id: 'cgpt-language',/, 'the language row must render through cgptSelect')
+assert.match(source, /\.cgpt-selectTrigger \{ max-width: 100%; \}/, 'the menu trigger may only carry layout, never the fallback appearance')
+assert.match(source, /\.cgpt-language \{[^}]*height: 34px; padding: 0 12px;[^}]*border: 0\.5px solid var\(--dsw-alias-border-l4\)[^}]*border-radius: var\(--dsw-radius-md, 12px\);/, 'the fallback select must copy the native settings .input metrics')
+// 破坏性确认与结果提示：原生 RiskConfirmation / Toast 优先，window.confirm / alert 只作兜底
+assert.match(source, /var NativeRiskConfirmation = native\('RiskConfirmation'\)/, 'destructive actions must use the host RiskConfirmation atom')
+assert.match(source, /var NativeToast = native\('Toast'\)/, 'failure notices must use the host Toast atom')
+assert.match(source, /if \(NativeRiskConfirmation\) \{ setUnbindAck\(false\); setUnbindOpen\(true\); return; \}/, 'unbind must ask through the native dialog, with window.confirm only as a fallback')
+assert.match(source, /if \(NativeRiskConfirmation\) \{ setInstallAck\(false\); setPendingInstall\(/, 'install must ask through the native dialog, with window.confirm only as a fallback')
+assert.match(source, /if \(NativeToast\) setToast\(\{ id: Date\.now\(\), text: text \}\);\s*\n\s*else alert\(text\);/, 'failure notices must go through the native Toast, with alert only as a fallback')
+assert.equal((source.match(/alert\(/g) || []).length, 1, 'alert must survive only as the Toast fallback')
+assert.equal((source.match(/(?:^|[^.\w])confirm\(t\('/g) || []).length, 2, 'confirm() must survive only as the two RiskConfirmation fallbacks')
 assert.doesNotMatch(source, /React\.createElement\(PRIMITIVES\./, 'primitives members must never be passed to createElement unguarded (React #130)')
 // 部署产物必须包含同一份样式（lib 已入库，构建后不得滞后）
 assert.match(artifact, /cgpt-row \{/, 'built client must carry the native row rule')

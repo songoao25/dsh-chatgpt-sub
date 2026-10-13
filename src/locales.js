@@ -115,7 +115,12 @@ export const LOCALES = {
     "ui.updateHeld": "新版 {version} 已被你暂缓，不会自动装回来。",
     "ui.updateAllowHeld": "允许更新到 {version}",
     "ui.updateRestartBadge": "重启生效",
-    "ui.updateFailedBadge": "更新失败"
+    "ui.updateFailedBadge": "更新失败",
+    "ui.dialogCancel": "取消",
+    "ui.dialogConfirm": "确定",
+    "ui.acknowledgeLabel": "我已了解上面的说明",
+    "ui.unbindConfirmTitle": "解绑 ChatGPT 账号？",
+    "ui.updateConfirmTitle": "安装新版本？"
   },
   "zh-hant": {
     "meta.title": "ChatGPT 訂閱",
@@ -233,7 +238,12 @@ export const LOCALES = {
     "ui.updateHeld": "新版 {version} 已被你暫緩，不會自動裝回來。",
     "ui.updateAllowHeld": "允許更新到 {version}",
     "ui.updateRestartBadge": "重啓生效",
-    "ui.updateFailedBadge": "更新失敗"
+    "ui.updateFailedBadge": "更新失敗",
+    "ui.dialogCancel": "取消",
+    "ui.dialogConfirm": "確定",
+    "ui.acknowledgeLabel": "我已了解上面的說明",
+    "ui.unbindConfirmTitle": "解除綁定 ChatGPT 帳號？",
+    "ui.updateConfirmTitle": "安裝新版本？"
   },
   "en": {
     "meta.title": "ChatGPT Subscription",
@@ -351,7 +361,12 @@ export const LOCALES = {
     "ui.updateHeld": "Version {version} is held back and will not be installed automatically.",
     "ui.updateAllowHeld": "Allow updating to {version}",
     "ui.updateRestartBadge": "Restart to apply",
-    "ui.updateFailedBadge": "Update failed"
+    "ui.updateFailedBadge": "Update failed",
+    "ui.dialogCancel": "Cancel",
+    "ui.dialogConfirm": "Confirm",
+    "ui.acknowledgeLabel": "I understand the note above",
+    "ui.unbindConfirmTitle": "Unbind the ChatGPT account?",
+    "ui.updateConfirmTitle": "Install the new version?"
   },
   "ja": {
     "meta.title": "ChatGPT サブスクリプション",
@@ -469,7 +484,12 @@ export const LOCALES = {
     "ui.updateHeld": "バージョン {version} は保留中のため、自動ではインストールされません。",
     "ui.updateAllowHeld": "{version} への更新を許可",
     "ui.updateRestartBadge": "再起動して適用",
-    "ui.updateFailedBadge": "更新失敗"
+    "ui.updateFailedBadge": "更新失敗",
+    "ui.dialogCancel": "キャンセル",
+    "ui.dialogConfirm": "実行する",
+    "ui.acknowledgeLabel": "上記の内容を理解しました",
+    "ui.unbindConfirmTitle": "ChatGPT アカウントの連携を解除しますか？",
+    "ui.updateConfirmTitle": "新しいバージョンをインストールしますか？"
   },
   "ko": {
     "meta.title": "ChatGPT 구독",
@@ -587,7 +607,12 @@ export const LOCALES = {
     "ui.updateHeld": "버전 {version}은(는) 보류 중이므로 자동으로 설치되지 않습니다.",
     "ui.updateAllowHeld": "{version}(으)로 업데이트 허용",
     "ui.updateRestartBadge": "다시 시작하여 적용",
-    "ui.updateFailedBadge": "업데이트 실패"
+    "ui.updateFailedBadge": "업데이트 실패",
+    "ui.dialogCancel": "취소",
+    "ui.dialogConfirm": "확인",
+    "ui.acknowledgeLabel": "위 내용을 확인했습니다",
+    "ui.unbindConfirmTitle": "ChatGPT 계정 연결을 해제할까요?",
+    "ui.updateConfirmTitle": "새 버전을 설치할까요?"
   },
   "es": {
     "meta.title": "Suscripción de ChatGPT",
@@ -705,7 +730,12 @@ export const LOCALES = {
     "ui.updateHeld": "La versión {version} está bloqueada y no se instalará automáticamente.",
     "ui.updateAllowHeld": "Permitir actualización a {version}",
     "ui.updateRestartBadge": "Reiniciar para aplicar",
-    "ui.updateFailedBadge": "Error de actualización"
+    "ui.updateFailedBadge": "Error de actualización",
+    "ui.dialogCancel": "Cancelar",
+    "ui.dialogConfirm": "Confirmar",
+    "ui.acknowledgeLabel": "Entiendo la nota anterior",
+    "ui.unbindConfirmTitle": "¿Desvincular la cuenta de ChatGPT?",
+    "ui.updateConfirmTitle": "¿Instalar la nueva versión?"
   },
   "pt": {
     "meta.title": "Assinatura do ChatGPT",
@@ -823,7 +853,12 @@ export const LOCALES = {
     "ui.updateHeld": "A versão {version} está bloqueada e não será instalada automaticamente.",
     "ui.updateAllowHeld": "Permitir atualização para {version}",
     "ui.updateRestartBadge": "Reinicie para aplicar",
-    "ui.updateFailedBadge": "Falha na atualização"
+    "ui.updateFailedBadge": "Falha na atualização",
+    "ui.dialogCancel": "Cancelar",
+    "ui.dialogConfirm": "Confirmar",
+    "ui.acknowledgeLabel": "Entendi a nota acima",
+    "ui.unbindConfirmTitle": "Desvincular a conta do ChatGPT?",
+    "ui.updateConfirmTitle": "Instalar a nova versão?"
   },
   "fr": {
     "meta.title": "Abonnement ChatGPT",
@@ -941,7 +976,12 @@ export const LOCALES = {
     "ui.updateHeld": "La version {version} est bloquée et ne sera pas installée automatiquement.",
     "ui.updateAllowHeld": "Autoriser la mise à jour vers {version}",
     "ui.updateRestartBadge": "Redémarrer pour appliquer",
-    "ui.updateFailedBadge": "Échec de mise à jour"
+    "ui.updateFailedBadge": "Échec de mise à jour",
+    "ui.dialogCancel": "Annuler",
+    "ui.dialogConfirm": "Confirmer",
+    "ui.acknowledgeLabel": "J'ai compris la note ci-dessus",
+    "ui.unbindConfirmTitle": "Dissocier le compte ChatGPT ?",
+    "ui.updateConfirmTitle": "Installer la nouvelle version ?"
   },
   "de": {
     "meta.title": "ChatGPT-Abonnement",
@@ -1059,7 +1099,12 @@ export const LOCALES = {
     "ui.updateHeld": "Version {version} wird zurückgehalten und nicht automatisch installiert.",
     "ui.updateAllowHeld": "Update auf {version} erlauben",
     "ui.updateRestartBadge": "Neustart erforderlich",
-    "ui.updateFailedBadge": "Update fehlgeschlagen"
+    "ui.updateFailedBadge": "Update fehlgeschlagen",
+    "ui.dialogCancel": "Abbrechen",
+    "ui.dialogConfirm": "Bestätigen",
+    "ui.acknowledgeLabel": "Ich habe den Hinweis oben gelesen",
+    "ui.unbindConfirmTitle": "ChatGPT-Konto trennen?",
+    "ui.updateConfirmTitle": "Neue Version installieren?"
   },
   "it": {
     "meta.title": "Abbonamento ChatGPT",
@@ -1177,7 +1222,12 @@ export const LOCALES = {
     "ui.updateHeld": "La versione {version} è bloccata e non verrà installata automaticamente.",
     "ui.updateAllowHeld": "Consenti aggiornamento a {version}",
     "ui.updateRestartBadge": "Riavvia per applicare",
-    "ui.updateFailedBadge": "Aggiornamento non riuscito"
+    "ui.updateFailedBadge": "Aggiornamento non riuscito",
+    "ui.dialogCancel": "Annulla",
+    "ui.dialogConfirm": "Conferma",
+    "ui.acknowledgeLabel": "Ho capito la nota sopra",
+    "ui.unbindConfirmTitle": "Scollegare l’account ChatGPT?",
+    "ui.updateConfirmTitle": "Installare la nuova versione?"
   },
   "ru": {
     "meta.title": "Подписка ChatGPT",
@@ -1295,7 +1345,12 @@ export const LOCALES = {
     "ui.updateHeld": "Версия {version} отложена и не будет установлена автоматически.",
     "ui.updateAllowHeld": "Разрешить обновление до {version}",
     "ui.updateRestartBadge": "Перезапустите для применения",
-    "ui.updateFailedBadge": "Ошибка обновления"
+    "ui.updateFailedBadge": "Ошибка обновления",
+    "ui.dialogCancel": "Отмена",
+    "ui.dialogConfirm": "Подтвердить",
+    "ui.acknowledgeLabel": "Я понимаю описанные последствия",
+    "ui.unbindConfirmTitle": "Отвязать аккаунт ChatGPT?",
+    "ui.updateConfirmTitle": "Установить новую версию?"
   },
   "hi": {
     "meta.title": "ChatGPT सदस्यता",
@@ -1413,7 +1468,12 @@ export const LOCALES = {
     "ui.updateHeld": "संस्करण {version} रोका गया है और अपने-आप इंस्टॉल नहीं होगा।",
     "ui.updateAllowHeld": "{version} पर अपडेट की अनुमति दें",
     "ui.updateRestartBadge": "लागू करने के लिए फिर शुरू करें",
-    "ui.updateFailedBadge": "अपडेट विफल"
+    "ui.updateFailedBadge": "अपडेट विफल",
+    "ui.dialogCancel": "रद्द करें",
+    "ui.dialogConfirm": "पुष्टि करें",
+    "ui.acknowledgeLabel": "मैंने ऊपर लिखी बात समझ ली है",
+    "ui.unbindConfirmTitle": "ChatGPT खाता अनबाइंड करें?",
+    "ui.updateConfirmTitle": "नया संस्करण इंस्टॉल करें?"
   },
   "id": {
     "meta.title": "Langganan ChatGPT",
@@ -1531,6 +1591,11 @@ export const LOCALES = {
     "ui.updateHeld": "Versi {version} ditunda dan tidak akan dipasang secara otomatis.",
     "ui.updateAllowHeld": "Izinkan pembaruan ke {version}",
     "ui.updateRestartBadge": "Mulai ulang untuk menerapkan",
-    "ui.updateFailedBadge": "Pembaruan gagal"
+    "ui.updateFailedBadge": "Pembaruan gagal",
+    "ui.dialogCancel": "Batal",
+    "ui.dialogConfirm": "Konfirmasi",
+    "ui.acknowledgeLabel": "Saya memahami catatan di atas",
+    "ui.unbindConfirmTitle": "Lepas ikatan akun ChatGPT?",
+    "ui.updateConfirmTitle": "Pasang versi baru?"
   }
 };
