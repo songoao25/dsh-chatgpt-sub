@@ -245,6 +245,18 @@ module.exports = {
           }
         });
       }
+      // 重启方向：优先认 host 给的三分类 restartKind（'update' / 'rollback' / 'downgrade'）。
+      // 宿主还是旧版时（包文件已替换、DSH 没重启 —— 正是这块最常出问题的窗口）没有这个字段，
+      // 就用回滚记录现场判一次：只做字符串相等，不做版本比较（版本比较的唯一出口在 host）。
+      // 拿不到「用户点过回滚」的凭据就只能中性陈述，绝不替用户编一个他没做过的动作。
+      function cgptRestartKind(state) {
+        if (!state) return null;
+        if (state.restartKind === 'update' || state.restartKind === 'rollback' || state.restartKind === 'downgrade') return state.restartKind;
+        if (state.restartDirection === 'update') return 'update';
+        if (state.restartDirection !== 'rollback') return null;
+        return typeof state.holdVersion === 'string' && state.holdVersion.length > 0 && state.holdVersion === state.runningVersion
+          ? 'rollback' : 'downgrade';
+      }
       var content = [];
       function row(key, title, description, controls) {
         return h('div', { className: 'cgpt-row', key: key },
@@ -257,11 +269,16 @@ module.exports = {
       if (state) {
         var latest = state.latest;
         var held = state.holdVersion && state.holdVersion === latest;
+        // 方向由 host 判定（见 updateStatePayload）：update = 磁盘已是新版待重启；rollback = 用户点过回滚、
+        // 磁盘比运行版本旧；downgrade = 磁盘比运行版本旧，但不是用户回滚的（插件被外部装成了旧版）。
+        // 三者都只有重启才生效，但说法必须分开：把外部降级说成「已回滚」既冤枉用户又让人看不懂。
+        var restartKind = cgptRestartKind(state);
         var statusText = t(latest ? 'ui.updateUpToDate' : 'ui.updateErrorCheckFailed');
         if (state.disabled) statusText = t('ui.updateDisabled');
         else if (phase === 'install') statusText = t('ui.updateInstalling', { version: shown(latest) });
-        else if (state.restartDirection === 'update') statusText = t('ui.updatePendingRestart', { version: shown(state.diskVersion) });
-        else if (state.restartDirection === 'rollback') statusText = t('ui.updateRolledBack', { version: shown(state.diskVersion) });
+        else if (restartKind === 'update') statusText = t('ui.updatePendingRestart', { version: shown(state.diskVersion) });
+        else if (restartKind === 'rollback') statusText = t('ui.updateRolledBack', { version: shown(state.diskVersion) });
+        else if (restartKind === 'downgrade') statusText = t('ui.updateDowngradePending', { version: shown(state.diskVersion), running: shown(state.runningVersion) });
         else if (state.lastError) statusText = t('ui.updateFailed');
         else if (held) statusText = t('ui.updateHeld', { version: state.holdVersion });
         else if (state.available && latest) statusText = t('ui.updateAvailableNow', { version: latest });
@@ -283,7 +300,10 @@ module.exports = {
             h('div', { className: 'cgpt-updateMode', role: 'radiogroup', 'aria-label': t('ui.autoUpdateTitle'), key: 'modes' },
               ['auto', 'manual'].map(function (mode) { return cgptButton({ key: mode, disabled: !!phase, role: 'radio', checked: (state.autoUpdate === false ? 'manual' : 'auto') === mode, onClick: function () { action('setUpdateAuto', { enabled: mode === 'auto' }, 'mode'); }, children: t(mode === 'auto' ? 'ui.updateModeAuto' : 'ui.updateModeManual') }); }))
           ]));
-          var rollback = state.restartDirection === 'update' || !!state.lastError;
+          // 逃生门只在新版已装好但还没重启（restartKind === 'update'，此时退回最省事）或上次更新失败时出现。
+          // 磁盘已经比运行中旧（'rollback' / 'downgrade'）时不再显示：回滚过的那次 pendingVersion 已清空，
+          // 外部降级则根本没有可回滚的对象，点了也没意义。
+          var rollback = restartKind === 'update' || !!state.lastError;
           if (rollback || held) content.push(row('fallback', null, t(rollback ? 'ui.updateFallbackWhy' : 'ui.updateHoldWhy'), [
             rollback ? cgptButton({ key: 'rollback', disabled: !!phase, onClick: function () { action('rollbackUpdate', null, 'rollback'); }, children: t('ui.updateRollback') }) : null,
             held ? cgptButton({ key: 'force', disabled: !!phase, onClick: function () { if (confirmInstall(state.holdVersion)) action('installUpdate', { force: true }, 'install'); }, children: t('ui.updateAllowHeld', { version: state.holdVersion }) }) : null,

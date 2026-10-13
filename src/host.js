@@ -7,7 +7,7 @@ import { dirname, join, sep } from 'node:path'
 import { createHash, randomBytes } from 'node:crypto'
 import { createServer } from 'node:http'
 import { LOCALES } from './locales.js'
-import { createSelfUpdater } from './self-update.js'
+import { classifyRestart, createSelfUpdater } from './self-update.js'
 import { PACKAGE_DIR, UPDATE_REGISTRY_URL, compareSemver, packageVersion } from './version.js'
 
 const UPDATE_CHECK_TIMEOUT_MS = 5000
@@ -649,12 +649,23 @@ export default {
       // 回滚过、磁盘比运行版本旧，两者都只有重启才生效，但文案要分开。
       // 判据是「两者不等」而不是「disk 更高」：回滚之后 disk 低于 running，同样只有重启才生效。
       const delta = compareSemver(current, state.runningVersion)
+      // restartKind 是三分类（2026-10-13，与 dsh-bottom-info-bar 同步）：磁盘比运行中旧时还要再分一次 ——
+      // 有回滚记录才算「用户回滚过」，没有记录只能说「磁盘上的版本变旧了」。以前只按版本高低判，于是
+      // 插件被外部装成旧版（DSH 自己的插件安装就会这样）时，界面会替用户编一句「已回滚到上一版」。
+      const restartKind = classifyRestart({
+        diskVersion: current,
+        runningVersion: state.runningVersion,
+        holdVersion: state.holdVersion,
+      })
       return Object.assign({}, state, {
         latest: latest,
         diskVersion: current,
         available: !!latest && compareSemver(latest, current) > 0,
         pendingRestart: delta !== 0,
+        // restartDirection 是为「包已替换、DSH 还没重启」时的旧页面留的兼容字段：旧 client 只认
+        // 它，改语义会让旧页面把降级当成「已是最新」（等于不提示重启）。新页面一律读 restartKind。
         restartDirection: delta > 0 ? 'update' : (delta < 0 ? 'rollback' : null),
+        restartKind: restartKind,
       })
     }
 
