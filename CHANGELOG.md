@@ -2,6 +2,13 @@
 
 本项目的版本记录遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.2](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.5.1...v0.5.2) (2026-10-13)
+
+
+### Bug Fixes
+
+* **ci:** 补上 npm 漏发哨兵，安装说明改为按包名 ([#42](https://github.com/songoao25/dsh-chatgpt-sub/issues/42)) ([9de628e](https://github.com/songoao25/dsh-chatgpt-sub/commit/9de628e3083d34b02854c4a3605234915bc9ba57))
+
 ## [0.5.1](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.5.0...v0.5.1) (2026-10-13)
 
 
