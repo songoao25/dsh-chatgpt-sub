@@ -2,6 +2,13 @@
 
 本项目的版本记录遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.3](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.5.2...v0.5.3) (2026-10-13)
+
+
+### Bug Fixes
+
+* 修正仓库地址大小写，让可信发布的 provenance 校验通过 ([#44](https://github.com/songoao25/dsh-chatgpt-sub/issues/44)) ([f745572](https://github.com/songoao25/dsh-chatgpt-sub/commit/f7455727553639730d8494d5ba12502b78383934))
+
 ## [0.5.2](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.5.1...v0.5.2) (2026-10-13)
 
 
