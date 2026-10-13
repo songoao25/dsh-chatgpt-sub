@@ -1,11 +1,21 @@
 name: Verify npm release
 
-# Verify metadata, latest and the downloadable archive after publication.
-# A timeout is incomplete verification and fails visibly; maintainers can rerun it.
+# 后台哨兵：确认发到 npm 的版本真的公开可安装。
+#
+# 三条触发路径：
+#   workflow_run      —— 每次 Publish NPM package 跑完自动复查（正常路径）
+#   schedule          —— 定时兜底：标签打了但发布没跑、或发布「报绿却没公开」
+#                        （2026-10-13 的 staged-only 静默暂存正是这种）也能被抓到
+#   workflow_dispatch —— 随时手动复查
+#
+# 超时即判「验证不完整」，看得见地失败；维护者可以重跑。
 on:
   workflow_run:
     workflows: ['Publish NPM package']
     types: [completed]
+  # 6 小时一次兜底。默认分支即为最新版本所在分支，读回的就是当前应公开的版本。
+  schedule:
+    - cron: '41 */6 * * *'
   workflow_dispatch:
     inputs:
       version:
@@ -29,7 +39,7 @@ jobs:
     if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && (github.event.workflow_run.head_branch == 'main' || startsWith(github.event.workflow_run.head_branch, 'v'))) }}
     steps:
       # workflow_run 时按触发它的 ref 检出（版本号精确到刚发的那一次）；
-      # 手动触发使用所选分支。
+      # schedule / 手动触发使用默认分支或所选分支。
       - name: Check out release ref
         uses: actions/checkout@v7
         with:
@@ -62,7 +72,7 @@ jobs:
           NPM_RELEASE_VERSION: ${{ github.event.inputs.version || '' }}
           NPM_RELEASE_EPOCH: ${{ steps.age.outputs.release_epoch }}
           # 发布刚结束时值得等一小会儿（典型 1~2 分钟就能确认）；
-          # 手动触发只检查一次。
+          # 定时与手动触发只读一次，绝不空等。
           NPM_VERIFY_WAIT_MS: ${{ github.event_name == 'workflow_run' && '600000' || '0' }}
           # 只读验证，不自动更改 latest。
           NPM_VERIFY_REPAIR_DIST_TAG: '0'

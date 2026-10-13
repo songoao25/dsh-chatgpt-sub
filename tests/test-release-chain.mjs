@@ -60,3 +60,5 @@ assert.ok(publish.includes('${GITHUB_REF_NAME#v}'), 'release tag must match pack
 assert.ok(publish.includes('npm publish --access public'), 'published package must be public');
 assert.ok(!publish.includes('verify-npm-publication.mjs'), 'publish job must not wait for public registry propagation');
 assert.ok(verify.includes('node scripts/verify-npm-publication.mjs'), 'public availability is verified separately');
+assert.ok(/^\s*schedule:/m.test(verify),
+  'verify-npm-release must keep a scheduled sentinel: a publish job that reports green without a public package must still be caught');
