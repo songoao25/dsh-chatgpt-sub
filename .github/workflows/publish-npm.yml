@@ -13,15 +13,15 @@ name: Publish NPM package
 #
 # 公开可用性改由独立的 verify-npm-release.yml 后台读回校验，不阻塞这里。
 #
-# 认证：仓库 secret DSH_CHATGPT_SUB_NPM_TOKEN（npm granular access token）。
-# 做法与底部信息栏插件一致（那边这个 secret 叫 NPM_TOKEN）。
-# 生成方式：npm 网站 → Access Tokens → Generate New Token →
-#   Packages 权限选 "Read and write (publish and stage)"、覆盖 All Packages、
-#   勾上 "Bypass two-factor authentication"（CI 里没法输手机验证码，必须勾）。
-# 注意 1：npm 文档称 2026-08 起带 Bypass 2FA 的 token 会被拒绝「账户身份类」查询。
-#   2026-10-13 实测本仓库的 token 能通过 npm whoami，但没把握以后一直如此，
-#   所以 whoami 只当提示、不当失败判据；真正的判据是 publish 本身。
-# 注意 2：npm 已宣布用 token 直接发布将在 2027-01 移除，届时改用可信发布（OIDC）。
+# 认证：npm Trusted Publishing（OIDC），不使用长期密钥。
+# job 需要 permissions: id-token: write；npm CLI 会把 GitHub 签发的 OIDC token
+# 换成一次性的发布凭证。前置条件（一次性，在 npm 网站上配）：
+#   包 → Settings → Trusted Publisher → GitHub Actions：
+#   Organization or user = songoao25、Repository = dsh-chatgpt-sub、
+#   Workflow filename = publish-npm.yml、Allowed actions 勾上允许 npm publish。
+# 注意 1：可信发布者配置创建后 2 天内必须成功发布一次，否则配置失效（重配即可）。
+# 注意 2：只勾了 stage publish 的话，npm 只会把版本放进待审队列，不会公开
+#   （2026-10-13 用 granular token 的 stage-only 权限实测踩到过这个坑）。
 on:
   push:
     tags:
@@ -35,6 +35,8 @@ on:
         default: false
 
 permissions:
+  # OIDC：npm 可信发布需要签发 id-token；其余权限保持只读。
+  id-token: write
   contents: read
 
 concurrency:
@@ -53,7 +55,10 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 22
+          # 可信发布要求 npm CLI >= 11.5.1、Node >= 22.14；Node 24 自带 npm 11.x。
+          # 旧 CLI（npm 10）不认识 staged publishing：stage-only 权限会被静默暂存，
+          # 日志却打印发布成功，所以这里必须用新 npm。
+          node-version: 24
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
 
@@ -70,30 +75,22 @@ jobs:
           fi
           echo "Releasing dsh-chatgpt-sub@$package_version"
 
-      - name: Check npm publishing token
+      - name: Check OIDC publishing environment
         shell: bash
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.DSH_CHATGPT_SUB_NPM_TOKEN }}
         run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "::error::DSH_CHATGPT_SUB_NPM_TOKEN is missing. Add a granular npm access token (All Packages, Read and write, Bypass 2FA) as the repository secret DSH_CHATGPT_SUB_NPM_TOKEN."
+          # 没有长期密钥可验：这里只确认 job 拿到了签发 OIDC token 的权限。
+          # 包级授权（可信发布者是否覆盖本 workflow、是否允许直接发布）由
+          # registry 在发布时判定。
+          if [ -z "$ACTIONS_ID_TOKEN_REQUEST_URL" ] || [ -z "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then
+            echo "::error::OIDC token request is unavailable. Add 'permissions: id-token: write' to this workflow."
             exit 1
           fi
-          # 不把 whoami 当失败条件：token 类型与 npm 策略都可能让它误报
-          # （详见文件头「注意 1」）。发布结果才是判据。
-          if npm whoami >/dev/null 2>&1; then
-            echo "npm token accepted for identity lookup."
-          else
-            echo "::warning::npm whoami did not confirm the token (expected for bypass-2FA tokens since 2026-08); the publish step is the real check."
-          fi
-          echo "ready to publish (node $(node --version), npm $(npm --version))."
+          echo "OIDC token request available (node $(node --version), npm $(npm --version))."
 
       # prepublishOnly 会先 npm run build，保证 npm 包里的 lib/ 与 src/ 一致。
       - name: Publish package
         if: ${{ inputs.verify_only != true }}
         shell: bash
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.DSH_CHATGPT_SUB_NPM_TOKEN }}
         run: |
           package_name="$(node -p "require('./package.json').name")"
           version="$(node -p "require('./package.json').version")"
@@ -120,8 +117,13 @@ jobs:
             exit 0
           fi
 
-          # npm 用 404 掩盖「无权限」，所以 401/404 基本都指向 token 本身。
+          # 可信发布者只允许 stage publish 时，registry 会要求改用 npm stage publish。
+          if printf '%s' "$output" | grep -q "E_STAGE_REQUIRED"; then
+            echo "::error::这次发布被要求走 staged publishing（E_STAGE_REQUIRED）。请在 npm 的可信发布者配置里勾上允许 npm publish（只勾 stage publish 不会公开版本）。"
+          fi
+
+          # npm 用 404 掩盖「无权限」，401/404 基本都指向可信发布者配置对不上。
           if printf '%s' "$output" | grep -Eq "E404|E401|40[13] (Not Found|Forbidden|Unauthorized)"; then
-            echo "::error::npm 拒绝了这次发布（401/404）。多半是 DSH_CHATGPT_SUB_NPM_TOKEN 的问题：没有覆盖这个包、没勾 Bypass two-factor authentication、或已过期。请重新生成 granular token（All Packages + Read and write (publish and stage) + Bypass 2FA）并替换仓库 secret。"
+            echo "::error::npm 拒绝了这次发布（401/404）。多为可信发布者配置问题：仓库名或工作流文件名对不上、配置过期（创建后 2 天内没成功发布过）、或没勾允许 npm publish。"
           fi
           exit "$status"
