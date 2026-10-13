@@ -18,8 +18,9 @@ name: Publish NPM package
 # 生成方式：npm 网站 → Access Tokens → Generate New Token →
 #   Packages 权限选 "Read and write (publish and stage)"、覆盖 All Packages、
 #   勾上 "Bypass two-factor authentication"（CI 里没法输手机验证码，必须勾）。
-# 注意 1：2026-08 起，带 Bypass 2FA 的 token 会被拒绝「账户身份类」查询，
-#   所以 npm whoami 不再能当判据（下面降级为警告），真正的判据是 publish 本身。
+# 注意 1：npm 文档称 2026-08 起带 Bypass 2FA 的 token 会被拒绝「账户身份类」查询。
+#   2026-10-13 实测本仓库的 token 能通过 npm whoami，但没把握以后一直如此，
+#   所以 whoami 只当提示、不当失败判据；真正的判据是 publish 本身。
 # 注意 2：npm 已宣布用 token 直接发布将在 2027-01 移除，届时改用可信发布（OIDC）。
 on:
   push:
@@ -78,8 +79,8 @@ jobs:
             echo "::error::DSH_CHATGPT_SUB_NPM_TOKEN is missing. Add a granular npm access token (All Packages, Read and write, Bypass 2FA) as the repository secret DSH_CHATGPT_SUB_NPM_TOKEN."
             exit 1
           fi
-          # 不把 whoami 当失败条件：Bypass-2FA 的 granular token 从 2026-08 起会被
-          # 拒绝账户身份类查询，用它判「token 坏了」会误报。发布结果才是判据。
+          # 不把 whoami 当失败条件：token 类型与 npm 策略都可能让它误报
+          # （详见文件头「注意 1」）。发布结果才是判据。
           if npm whoami >/dev/null 2>&1; then
             echo "npm token accepted for identity lookup."
           else
