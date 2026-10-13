@@ -13,9 +13,9 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/SONGOAO25/dsh-chatgpt-sub.git"
+    "url": "https://github.com/songoao25/dsh-chatgpt-sub.git"
   },
-  "homepage": "https://github.com/SONGOAO25/dsh-chatgpt-sub",
+  "homepage": "https://github.com/songoao25/dsh-chatgpt-sub",
   "author": "SONGOAO25",
   "license": "MIT",
   "type": "module",
