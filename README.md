@@ -4,6 +4,7 @@
 
 [![License: MIT](https://img.shields.io/github/license/SONGOAO25/dsh-chatgpt-sub)](https://github.com/SONGOAO25/dsh-chatgpt-sub/blob/main/LICENSE)
 [![Release](https://img.shields.io/github/v/release/SONGOAO25/dsh-chatgpt-sub)](https://github.com/SONGOAO25/dsh-chatgpt-sub/releases)
+[![npm version](https://img.shields.io/npm/v/dsh-chatgpt-sub)](https://www.npmjs.com/package/dsh-chatgpt-sub)
 
 A DeepSeek Harness plugin that connects your ChatGPT account through OpenAI's sign-in page and lets you use the account's available ChatGPT models inside DSH. You need a plan that includes Codex access and sufficient subscription quota.
 
@@ -49,9 +50,11 @@ Open **Plugins → ChatGPT Subscription** and choose **Sign in with ChatGPT**. C
 
 Authorization and model requests communicate with official OpenAI endpoints. Sign-in tokens are saved in the standard local `~/.codex/auth.json` file with owner-only permissions and synchronized into DSH's credential store. Signing in can update that shared file, so it can affect which account Codex CLI uses. Tokens are transmitted to OpenAI for authorized requests; they are not written to plugin logs.
 
-Unbinding and uninstalling preserve `~/.codex/auth.json` and remove the plugin's binding and managed DSH entries. The plugin refreshes sign-in automatically. Under **Version and updates**, automatic updates (default) check npm when DSH starts, verify and replace the plugin files, then take effect after a restart. Manual mode checks without installing; installation asks for confirmation. Failed updates restore the previous files, and settings offer rollback when needed. Sign-in data is preserved. Local checkout and linked installs require a code update and rebuild; see [docs/INSTALL.md](docs/INSTALL.md). Updates become available after the npm package is published.
+Unbinding and uninstalling preserve `~/.codex/auth.json` and remove the plugin's binding and managed DSH entries. The plugin refreshes sign-in automatically. Under **Version and updates**, automatic updates (default) check npm when DSH starts, verify and replace the plugin files, then take effect after a restart. Manual mode checks without installing; installation asks for confirmation. Failed updates restore the previous files, and settings offer rollback when needed. Sign-in data is preserved. Local checkout and linked installs require a code update and rebuild; see [docs/INSTALL.md](docs/INSTALL.md).
 
-Remove the plugin from the desktop app's **Plugins** page, or use `dsh plugin --profile web remove dsh-chatgpt-sub` for the CLI web profile. Do not include sign-in files, credentials, or account details in bug reports.
+## Uninstall and roll back
+
+Remove the plugin from the desktop app's **Plugins** page, or use `dsh plugin --profile web remove dsh-chatgpt-sub` for the CLI web profile, then restart DSH. Uninstalling keeps `~/.codex/auth.json` (the Codex CLI's own sign-in) and removes this plugin's binding and the DSH entries it manages. To go back a version instead of removing the plugin, **Version and updates** offers rollback after a failed update or while a newer build waits for a restart. Do not include sign-in files, credentials, or account details in bug reports.
 
 ## Languages
 

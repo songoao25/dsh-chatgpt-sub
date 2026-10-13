@@ -32,9 +32,46 @@ Account tokens belong only in the local sign-in file and DSH credential store. B
 
 Use a focused branch and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/). Describe the user-visible change, checks performed and remaining verification gaps. External contributions need maintainer review.
 
-Release Please manages versions and release notes. Do not manually change package or manifest version fields outside the established release process. Owner code PRs may auto-merge after required checks; release PRs are excluded and require maintainer confirmation. Tags trigger npm publication through npm Trusted Publishing (OIDC); publication success must be checked against the public registry and the downloadable archive, because neither a green publish job nor a GitHub Release proves the version is publicly installable — the 0.4.0 attempt and the 2026-10-13 staged-only publish both looked green without a public package.
+Release Please manages versions and release notes; its configuration lives in `release-please-config.json` and `.release-please-manifest.json`. Do not manually change package or manifest version fields outside the established release process. Owner code PRs may auto-merge after required checks; release PRs are excluded and require maintainer confirmation. Tags are created only by the release bot, as `vX.Y.Z` with no component prefix — do not create, move or delete tags by hand. Tags trigger npm publication through npm Trusted Publishing (OIDC); publication success must be checked against the public registry, the `latest` tag and the downloadable archive, because neither a green publish job nor a GitHub Release proves the version is publicly installable — the 0.4.0 attempt and the 2026-10-13 staged-only publish both looked green without a public package.
 
 README.md is the English entry point; README.zh-CN.md mirrors it in Chinese. Keep installation claims aligned with published packages and DSH's actual supported installation paths. Public repository files are for users and contributors; exclude private instructions, session records, account data and internal audits.
+
+## Repository framework status
+
+This repository follows the personal GitHub project standard: one workflow per responsibility
+(`ci`, `codeql`, `release-please`, `publish-npm`, `verify-npm-release`, `auto-merge-own`),
+a seven-section README with a Chinese mirror, SemVer with tags created only by the release bot
+(`vX.Y.Z`, no component prefix), and npm publishing through Trusted Publishing (OIDC) with no
+long-lived npm token.
+
+Release secrets (GitHub shows no expiry through its API — read the date on the token page and
+record the renewal here):
+
+| Name | Purpose | Referenced by | Expires | Last renewed |
+| --- | --- | --- | --- | --- |
+| `AUTOMATION_TOKEN` | Let the release bot open release PRs, and let the tag it creates trigger publishing | `release-please.yml`, `auto-merge-own.yml` | see the GitHub token page | 2026-09-24 |
+
+The name stays as it is: repository secrets cannot be renamed, so the standard's rule for an
+existing repository is to keep the current name, keep a single token per purpose, and register it
+here. It is renamed only if it ever has to be regenerated. The npm secrets `NPM_TOKEN` and
+`DSH_CHATGPT_SUB_NPM_TOKEN` were deleted on 2026-10-13; publishing no longer uses any long-lived
+key.
+
+Known deviations (checked 2026-10-13):
+
+- `.release-please-manifest.json` was seeded by hand with the released version (`0.5.3`) when this
+  repository moved from the action's inline `release-type: node` to a config file, because
+  release-please requires a manifest at the tip of the branch before its first run. This is the
+  documented bootstrap exception; version changes are bot-only from here on.
+- Published versions skip one number: npm has `0.5.1` and `0.5.3`, while `0.5.2` was tagged and
+  released on GitHub but never reached npm (its provenance check failed on a repository-URL case
+  mismatch, fixed in #44). That history is not rewritten; versions increment one by one from here on.
+- The read-back sentinel does not repair a stale `latest` dist-tag, because changing a dist-tag
+  needs credentials and this repository publishes through OIDC without any. If npm drops `latest`,
+  the sentinel fails loudly and a maintainer runs
+  `npm dist-tag add dsh-chatgpt-sub@<version> latest` by hand.
+
+Any deviation from the standard belongs in this section with a reason and a date.
 
 ## Conduct and license
 

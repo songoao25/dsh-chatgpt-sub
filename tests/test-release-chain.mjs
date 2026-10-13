@@ -9,6 +9,9 @@
 //      id-token: write。（2026-10-13 从 granular token 换回 OIDC：token 的
 //      stage-only 权限会把版本静默放进待审队列，而 npm 已公告 token 直接
 //      发布将于 2027-01 移除）
+//   5) 框架对齐（2026-10-13）：发版配置的唯一出处是 release-please-config.json，
+//      标签格式 vX.Y.Z 不带组件名前缀，清单与 package.json 版本一致，
+//      框架记录写在 CONTRIBUTING.md
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -62,3 +65,23 @@ assert.ok(!publish.includes('verify-npm-publication.mjs'), 'publish job must not
 assert.ok(verify.includes('node scripts/verify-npm-publication.mjs'), 'public availability is verified separately');
 assert.ok(/^\s*schedule:/m.test(verify),
   'verify-npm-release must keep a scheduled sentinel: a publish job that reports green without a public package must still be caught');
+
+// ---------- 5. 框架对齐：发版配置唯一出处 + 标签格式 + 框架记录 ----------
+const rpConfig = JSON.parse(read('release-please-config.json'));
+assert.equal(rpConfig['include-component-in-tag'], false, 'tags must not carry a component prefix');
+assert.equal(rpConfig.packages['.'].component, 'dsh-chatgpt-sub', 'the release component is the package name');
+assert.equal(rpConfig.packages['.']['include-v-in-tag'], true, 'tags must keep the v prefix');
+assert.ok(rpConfig['last-release-sha'], 'moving to a config file must pin last-release-sha so old commits are not re-changelogged');
+assert.ok(releasePlease.includes('googleapis/release-please-action@v5'),
+  'release-please must use the maintained action');
+assert.ok(!releasePlease.includes('release-type:'),
+  'release-type belongs in release-please-config.json, not inlined in the workflow');
+assert.ok(/^\s*concurrency:/m.test(releasePlease), 'release-please must not run twice for the same ref');
+
+const manifest = JSON.parse(read('.release-please-manifest.json'));
+assert.equal(manifest['.'], JSON.parse(read('package.json')).version,
+  'the release manifest and package.json must agree on the released version');
+assert.ok(verify.includes('.release-please-manifest.json'),
+  'the release age must come from the release manifest, which only the release bot rewrites');
+assert.ok(read('CONTRIBUTING.md').includes('Repository framework status'),
+  'the framework record belongs in CONTRIBUTING.md');
