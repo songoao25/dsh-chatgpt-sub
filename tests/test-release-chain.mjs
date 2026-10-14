@@ -13,7 +13,7 @@
 //      标签格式 vX.Y.Z 不带组件名前缀，清单与 package.json 版本一致，
 //      框架记录写在 CONTRIBUTING.md
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -30,11 +30,23 @@ assert.ok(releasePlease.includes('secrets.AUTOMATION_TOKEN || github.token'),
 assert.ok(autoMerge.includes('secrets.AUTOMATION_TOKEN || secrets.GITHUB_TOKEN'),
   'auto-merge must merge with AUTOMATION_TOKEN, falling back to GITHUB_TOKEN')
 
-// Release PRs require explicit maintainer confirmation, matching Bottom Info Bar.
-assert.ok(autoMerge.includes("!startsWith(github.event.pull_request.head.ref, 'release-please--')"), 'release branches must be excluded from auto-merge');
-assert.ok(autoMerge.includes("!contains(join(github.event.pull_request.labels.*.name, ','), 'autorelease')"), 'release labels must be excluded from auto-merge');
-assert.ok(autoMerge.includes("!startsWith(github.event.pull_request.title, 'chore(main): release ')"), 'release titles must be excluded from auto-merge');
-assert.ok(autoMerge.includes('github.event.pull_request.user.login == github.repository_owner'), 'only owner code PRs auto-merge');
+// 发版 PR 也走自动合并（2026-10-14 用户拍板全自动：自动审核 / 自动批准 / 自动合并 /
+// 自动发版）。人工闸门撤掉后，v2.0.0 那种误发的根因改由 tests/test-source-guards.mjs
+// 的机器守卫在 CI 里拦住 —— 所以这里同时钉住「闸门确实撤了」和「守卫确实在跑」。
+assert.ok(autoMerge.includes('github.event.pull_request.user.login == github.repository_owner'),
+  'only owner PRs auto-merge');
+assert.ok(autoMerge.includes('github.event.pull_request.draft == false'), 'draft PRs must not auto-merge');
+// 只看 if: 条件本身 —— 文件头的说明文字里仍会提到这些字符串（解释为什么撤掉它们）。
+const autoMergeCondition = autoMerge.split('if: >-')[1]?.split('runs-on:')[0] ?? ''
+for (const gone of ["release-please--", 'autorelease', 'chore(main): release ']) {
+  assert.ok(!autoMergeCondition.includes(gone),
+    'release PRs are auto-merged now, so the exclusion of ' + gone + ' must be gone from the condition');
+}
+assert.ok(existsSync(join(root, 'tests/test-source-guards.mjs')),
+  'the machine guards that replaced the human release gate must exist');
+assert.ok(read('tests/run-all.mjs').includes('test-source-guards.mjs'),
+  'the guards must actually run in CI');
+assert.ok(/fetch-depth:\s*0/.test(ci), 'the metadata guard needs the full history in CI');
 
 // ---------- 3. 手动补跑入口保留 ----------
 for (const [name, text] of [['release-please.yml', releasePlease], ['ci.yml', ci]]) {

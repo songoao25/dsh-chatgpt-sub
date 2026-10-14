@@ -17,6 +17,7 @@ const files = [
   'test-locale-copy.mjs',
   'test-install-docs.mjs',
   'test-release-chain.mjs',
+  'test-source-guards.mjs',
   'test-codex-host.js',
 ]
 
