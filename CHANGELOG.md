@@ -2,6 +2,13 @@
 
 本项目的版本记录遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.6.0](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.5.3...v0.6.0) (2026-10-14)
+
+
+### Features
+
+* 设置页改用 DSH 原生控件与原生确认弹窗 ([#48](https://github.com/songoao25/dsh-chatgpt-sub/issues/48)) ([6c6cedf](https://github.com/songoao25/dsh-chatgpt-sub/commit/6c6cedf50c380f4a01569905726d8372afa36757))
+
 ## [0.5.3](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.5.2...v0.5.3) (2026-10-13)
 
 
