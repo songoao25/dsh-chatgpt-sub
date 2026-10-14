@@ -46,18 +46,31 @@ assert.match(source, /function installStyles\(\)/, 'client must install a styles
 assert.match(source, /style\.dataset\.pluginCss = id/, 'stylesheet injection must be idempotent via data-plugin-css')
 assert.match(source, /\.cgpt-page \{[^}]*max-width: 100%;/, 'page width cap must be left to the host (.X_2TxG_page > * already pins min(100%, 960px))')
 assert.doesNotMatch(source, /\.cgpt-page \{[^}]*max-width: 760px/, 'page must not hard-cap its width at 760px (it narrows the content against the host and leaves the right edge unreachable)')
-// 间距基准 = 宿主 detailSection 的 12px：本页只是详情页里的一个 section，
-// 套 detailSections 的 32px 会在「描述 → 内容 → Components」之间多出一大段空白。
-assert.match(source, /\.cgpt-page \{[^}]*gap: 12px;/, 'page internals must follow the native detailSection rhythm (12px)')
-assert.doesNotMatch(source, /\.cgpt-page \{[^}]*gap: 32px;/, 'the page must not reuse the between-sections rhythm (32px)')
+// 2026-10-14 复核（安装版 DSH 的 plugin-manager CSS 实测，class 前缀随版本变，当前 ZVcBiW_*）：
+//   .detailSections { flex-direction:column; gap:32px; margin-top:32px }  ← 区块之间
+//   .detailSection  { flex-direction:column; gap:12px }                   ← 区块内部
+// 插件设置页挂在 section.detailSection[data-plugin-config] 里，本页自己由多个区块组成，
+// 所以：区块之间 32px（detailSections 节奏）、区块内部 12px（detailSection 节奏）。
+// 旧的「整页一律 12px + 用 1px border-top 分区块」是自创做法，宿主里没有这条线。
+assert.match(source, /\.cgpt-page \{[^}]*gap: 32px;/, 'page blocks must follow the native detailSections rhythm (32px)')
+assert.match(source, /\.cgpt-updates \{[^}]*gap: 12px;/, 'a section keeps the native detailSection rhythm (12px) inside')
+assert.doesNotMatch(source, /\.cgpt-updates \{[^}]*border-top: 1px solid/, 'sections must be separated by spacing, not by a 1px rule (the host has none)')
 // 文案去重铁律：详情页顶部已经有插件名与描述，页面内不得再复述标题或介绍段
 assert.doesNotMatch(source, /cgpt-intro/, 'in-page intro must stay removed (the manifest description already covers it)')
-assert.doesNotMatch(source, /cgpt-title|cgpt-sectionHead/, 'the page must not restate the plugin title the host already renders')
+assert.doesNotMatch(source, /cgpt-title|cgpt-intro/, 'the page must not restate the plugin title the host already renders')
+// 区块头照宿主 .sectionHead + .sectionTitle：标题 14/500/20，说明 13/18 二级色
+assert.match(source, /\.cgpt-sectionHead \{ display: flex; flex-direction: column; gap: 2px;/, 'section head must be a small stacked block like the native sectionHead')
+assert.match(source, /\.cgpt-sectionTitle \{[^}]*font-size: 14px; font-weight: 500; line-height: 20px;/, 'section title must match the native sectionTitle (14/500/20)')
+assert.match(source, /\.cgpt-sectionDesc \{[^}]*font-size: 13px; line-height: 18px; color: var\(--dsw-alias-label-secondary\)/, 'section description must sit one step below the title (13/18 secondary)')
 // 行 = 原生 .X_2TxG_row：12px 2px + .5px 下边线（末行无线），不是插件列表的 card 几何
 assert.match(source, /\.cgpt-list \{ display: flex; flex-direction: column; gap: 0;/, 'row list must match the native .rows container (gap 0)')
 assert.match(source, /\.cgpt-row \{[^}]*padding: 12px 2px; border: 0; border-bottom: 0\.5px solid var\(--dsw-alias-border-l2/, 'rows must use the native .row geometry (12px 2px + .5px bottom rule)')
-assert.match(source, /\.cgpt-row:first-child \{ padding-top: 0; \}/, 'the first row must sit flush with the description above it')
-assert.match(source, /\.cgpt-row:last-child \{ padding-bottom: 0; border-bottom: 0; \}/, 'the last row must drop its rule and padding like the native .row:last-child')
+// 行内两栏 = 宿主 .rowLine(flex/gap16) + .rowMain(flex:1/column/gap2)：控件靠右由「文字块 flex:1」实现
+assert.match(source, /\.cgpt-rowText \{[^}]*flex: 1; gap: 2px; min-width: 0;/, 'the row text block must grow like the native .rowMain (flex: 1)')
+assert.doesNotMatch(source, /\.cgpt-row \{[^}]*justify-content: space-between/, 'rows must not push the control right with space-between (the native row uses flex:1 on .rowMain)')
+// 宿主只有 :last-child 去线这一条，没有 first-child 去内边距的自创覆写
+assert.match(source, /\.cgpt-row:last-child \{ border-bottom: 0; \}/, 'the last row must drop its rule like the native .row:last-child')
+assert.doesNotMatch(source, /\.cgpt-row:first-child/, 'no first-child padding override (the host row has none)')
 assert.doesNotMatch(source, /\.cgpt-row \{[^}]*margin: 0 -8px/, 'rows must not use the card negative margin (it gets clipped by the collapse container)')
 assert.match(source, /\.cgpt-rowTitle \{[^}]*font-size: 13\.5px; font-weight: 500; line-height: 20px;/, 'row title must match the measured native rowId scale (13.5/500/20)')
 assert.match(source, /\.cgpt-rowDesc \{[^}]*font-size: 11\.5px; line-height: 16px; color: var\(--dsw-alias-label-tertiary\)/, 'row description must match the native .X_2TxG_rowModule scale (11.5/16 tertiary)')
@@ -92,6 +105,11 @@ assert.match(source, /function cgptMode\(props\)/, 'the mode switch must be rend
 assert.match(source, /\.cgpt-status--success \{[^}]*border-radius: 999px; padding: 1px 8px; font-size: 11px; line-height: 17px; font-weight: 500;/, 'status fallback must copy the native Tag geometry')
 assert.doesNotMatch(source, /cgpt-statusPill|cgpt-dot/, 'the hand-drawn status pill and dot must be gone (host Tag/StateDot supersede them)')
 assert.doesNotMatch(source, /cgpt-updateMode/, 'the hand-rolled update-mode button row must be gone (SegmentedControl supersedes it)')
+// 原生分段控件是 tablist：tab 的 aria-controls 指向 <id>-<value>-panel，说明自己充当 panel
+// （放在行的文字列里，非选中项 hidden）——不留悬空引用，与 dsh-bottom-info-bar 同一做法。
+assert.match(source, /id: 'cgpt-update-mode-' \+ value \+ '-panel'/, 'each segmented tab needs its matching tabpanel id')
+assert.match(source, /'aria-labelledby': 'cgpt-update-mode-' \+ value/, 'each tabpanel must point back at its tab')
+assert.match(source, /hidden: value !== modeValue/, 'only the selected option panel stays visible')
 // 语言选择器：宿主原生 Menu 弹层优先，<select> 只作兜底；兜底度量照 settings-form .input
 assert.match(source, /var NativeMenu = native\('Menu'\)/, 'the language picker must use the host Menu atom')
 assert.match(source, /function cgptSelect\(props\)/, 'the language picker must go through a native-first helper')
