@@ -32,7 +32,7 @@ Account tokens belong only in the local sign-in file and DSH credential store. B
 
 Use a focused branch and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/). Describe the user-visible change, checks performed and remaining verification gaps. External contributions need maintainer review.
 
-Release Please manages versions and release notes; its configuration lives in `release-please-config.json` and `.release-please-manifest.json`. Do not manually change package or manifest version fields outside the established release process. Owner code PRs may auto-merge after required checks; release PRs are excluded and require maintainer confirmation. Tags are created only by the release bot, as `vX.Y.Z` with no component prefix — do not create, move or delete tags by hand. Tags trigger npm publication through npm Trusted Publishing (OIDC); publication success must be checked against the public registry, the `latest` tag and the downloadable archive, because neither a green publish job nor a GitHub Release proves the version is publicly installable — the 0.4.0 attempt and the 2026-10-13 staged-only publish both looked green without a public package.
+Release Please manages versions and release notes; its configuration lives in `release-please-config.json` and `.release-please-manifest.json`. Do not manually change package or manifest version fields outside the established release process — a CI guard enforces it (`tests/test-source-guards.mjs`). The whole chain is **fully automatic** since 2026-10-14: owner PRs, **release PRs included**, auto-merge once the required checks pass, and the tag publishes itself. What used to be the human gate is now those machine guards: they block hand-edited version metadata, and block a release PR that strays outside the four version files or leaves `package.json` and the manifest disagreeing. Tags are created only by the release bot, as `vX.Y.Z` with no component prefix — do not create, move or delete tags by hand. Tags trigger npm publication through npm Trusted Publishing (OIDC); publication success must be checked against the public registry, the `latest` tag and the downloadable archive, because neither a green publish job nor a GitHub Release proves the version is publicly installable — the 0.4.0 attempt and the 2026-10-13 staged-only publish both looked green without a public package.
 
 README.md is the English entry point; README.zh-CN.md mirrors it in Chinese. Keep installation claims aligned with published packages and DSH's actual supported installation paths. Public repository files are for users and contributors; exclude private instructions, session records, account data and internal audits.
 
@@ -41,8 +41,9 @@ README.md is the English entry point; README.zh-CN.md mirrors it in Chinese. Kee
 This repository follows the personal GitHub project standard: one workflow per responsibility
 (`ci`, `codeql`, `release-please`, `publish-npm`, `verify-npm-release`, `auto-merge-own`),
 a seven-section README with a Chinese mirror, SemVer with tags created only by the release bot
-(`vX.Y.Z`, no component prefix), and npm publishing through Trusted Publishing (OIDC) with no
-long-lived npm token.
+(`vX.Y.Z`, no component prefix), npm publishing through Trusted Publishing (OIDC) with no
+long-lived npm token, and a fully automatic release chain (checks, merge and publish all run
+without a human step; see the deviation note below).
 
 Release secrets (GitHub shows no expiry through its API — read the date on the token page and
 record the renewal here):
@@ -57,8 +58,17 @@ here. It is renamed only if it ever has to be regenerated. The npm secrets `NPM_
 `DSH_CHATGPT_SUB_NPM_TOKEN` were deleted on 2026-10-13; publishing no longer uses any long-lived
 key.
 
-Known deviations (checked 2026-10-13):
+Known deviations (checked 2026-10-14):
 
+- **Release PRs are merged automatically (2026-10-14, maintainer decision).** The standard's
+  section 3.4 asks for release PRs to be confirmed by a person. Here they auto-merge like any
+  owner PR, because the goal is a chain that needs no human step (check → approve → merge →
+  publish). The failure that gate existed for — 2026-09-11: hand-edited version metadata made
+  Release Please compute a wrong major version, and the auto-merged release PR published it — is
+  now covered by machine guards in `tests/test-source-guards.mjs` (a normal PR cannot touch
+  version metadata; a release PR may only touch the four version files and must keep
+  `package.json` and the manifest in agreement). The standard source has not been updated yet;
+  this entry records the deviation until it is.
 - `.release-please-manifest.json` was seeded by hand with the released version (`0.5.3`) when this
   repository moved from the action's inline `release-type: node` to a config file, because
   release-please requires a manifest at the tip of the branch before its first run. This is the

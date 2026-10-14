@@ -1,14 +1,21 @@
 name: Auto-merge own PRs
 
-# 目標：只有倉庫擁有者 songoao25 的 PR 自動開啟 auto-merge（CI 通過後自動 squash），
-# 其他人（外部貢獻者 / fork）的 PR 保持手動，需人工 Review + 手動合併。
-# 這符合業界「trust-by-author」慣例：可信作者的 PR 自動化，不可信作者保留人工閘門。
+# 目标：仓库拥有者 songoao25 的 PR（**含发版 PR**）自动开启 auto-merge，
+# 必需检查 CI 一过就自动 squash 合并；其他人的 PR 保持人工 review。
 #
-# 例外（2026-09-11 新增）：Release Please 開的「發布 PR」不自動合併。
-# 原因：Release Please 用 owner 的 AUTOMATION_TOKEN 開 PR，作者看起來就是 owner，
-# 因此發布 PR 會被當成「自己的 PR」放行 —— 等於把唯一該有人把關的環節也自動化了。
-# 2026-09-11 的 v2.0.0 誤發事故正是如此（手工 bump 版本號導致 Release Please 算错大版本）。
-# 發布 PR 的分支名固定為 release-please--*，且會被加上 autorelease: 標籤，兩者都排除。
+# 2026-10-14 变更（用户拍板「自动审核 / 自动批准 / 自动合并 / 自动发版」）：
+# 撤掉 2026-09-11 之后加的「发版 PR 排除」三道判断（分支名 release-please--*、
+# autorelease: 标签、chore(main): release 标题）。那次 v2.0.0 误发事故的根因是
+# **有人手工改了版本元数据**：Release Please 因此失去「上次发布」的基准，把全部历史
+# 当成未发布内容、算出错误的大版本，而当时的发版 PR 是自动合并的，于是直接发了出去。
+#
+# 撤掉人工闸门的同时，风险改由 CI 里的机器守卫接管（tests/test-source-guards.mjs）：
+#   ① 普通 PR 不得手工修改版本元数据（逃生舱 [release-metadata-override]）；
+#   ② 发版 PR 只允许改那四个版本文件，且 manifest 与 package.json 的新版本必须一致。
+# 两条都由必需检查 CI 强制：任一不过，auto-merge 就永远等不到合并条件。
+#
+# 分支保护不要求任何人的批准（required_approving_review_count = 0），所以整条链是
+# 自动审核（CI + CodeQL）→ 自动批准（无需人工批准）→ 自动合并（这里）→ 自动发版（标签触发）。
 on:
   pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review]
@@ -19,16 +26,10 @@ permissions:
 
 jobs:
   enable-auto-merge:
-    # 只有 owner 的 PR 才進入；draft PR 不自動合；發布 PR 留給人工/AI 確認後再合併。
-    # 三道判別條件是有意的縱深防禦（任一命中即攔下）：分支名最穩、標籤次之、標題最後。
-    # 這三道都偏向「多攔」，代價只是某個普通 PR 沒自動合併（看得見、可手動合），
-    # 而漏放的代價是發布 PR 被靜默合併（v2.0.0 事故）。方向必須偏安全。
+    # owner 自己的 PR（含发版 PR）自动合并；draft 不自动合；别人的 PR 留人工。
     if: >-
       github.event.pull_request.user.login == github.repository_owner
       && github.event.pull_request.draft == false
-      && !startsWith(github.event.pull_request.head.ref, 'release-please--')
-      && !contains(join(github.event.pull_request.labels.*.name, ','), 'autorelease')
-      && !startsWith(github.event.pull_request.title, 'chore(main): release ')
     runs-on: ubuntu-latest
     steps:
       - name: Report automation token mode
