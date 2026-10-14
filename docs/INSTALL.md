@@ -16,7 +16,7 @@
 dsh-chatgpt-sub
 ```
 
-npm 上的 `dsh-chatgpt-sub` 自 2026-10-13（0.5.1）起公开可装。也可以填仓库地址，安装的是仓库根（`lib/` 已入库，所以填地址安装**不跑构建、不会弹「待批准的构建脚本」**）。同一个框也接受：
+npm 上的 `dsh-chatgpt-sub` 自 2026-10-13（0.5.1）起公开可装；填包名时 DSH 会去 npm 解析这个名字、用 pnpm 装进 profile 目录。也可以填仓库地址，安装的是仓库根（`lib/` 已入库，所以填地址安装**不跑构建、不会弹「待批准的构建脚本」**）。同一个框也接受：
 
 - 本仓库工作副本的绝对路径 —— 用于开发（会产生 `link:` 安装）。
 
@@ -133,6 +133,7 @@ dsh plugin --profile web remove dsh-chatgpt-sub
 |---|---|
 | 插件详情里没有配置页 | ① 没重启：需重启 DSH；② 装错 profile：确认启动用的 profile 与安装目标一致；③ `dsh --profile web --dump-config` 里没有 dsh-chatgpt-sub：重新执行安装 |
 | 插件页或命令行报「未找到相关插件」 | 先检查包名拼写；包名解析不到时改用仓库地址安装 |
+| 装到的版本比 npm 上的最新版旧 | pnpm 11 默认有「发布冷却期」（`minimumReleaseAge`）：刚发布不久的版本会被跳过，自动退到更早的一个版本（实测：pnpm 11.21.0 下，某版本发布约 1 小时后填包名装到的是上一版）。命令行可临时关掉：`pnpm add dsh-chatgpt-sub --config.minimumReleaseAge=0`；插件页的安装框不能加参数，等冷却期过去再重装即可。装好后插件页的「版本与更新」直接读 npm 上的最新版本，不受这条限制 |
 | 插件页报「这个包没有声明组合包」 | 装到的是一个「仓库根不是包」的仓库。本仓库根目录一直是包；请确认填的是本仓库，并用包含最新提交的地址 |
 | 插件页提示「有依赖的安装脚本需要你允许」/「待批准的构建脚本」 | 装到的清单里声明了 `prepare` / `prepack`（本仓库当前清单没有，只有 `prepublishOnly`）。用最新提交的仓库地址重装；确实需要放行时，按提示把 pnpm 打印的那一行加进 profile 的 `pnpm-workspace.yaml` 的 `allowBuilds` 再重试 |
 | 命令行报 `profile "desktop" is managed exclusively by the Electron application` | 桌面端客户端的 profile 不能用 CLI 改：请在客户端 **插件 → 添加插件** 里安装/卸载 |
