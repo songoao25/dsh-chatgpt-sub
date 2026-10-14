@@ -42,8 +42,9 @@ This repository follows the personal GitHub project standard: one workflow per r
 (`ci`, `codeql`, `release-please`, `publish-npm`, `verify-npm-release`, `auto-merge-own`),
 a seven-section README with a Chinese mirror, SemVer with tags created only by the release bot
 (`vX.Y.Z`, no component prefix), npm publishing through Trusted Publishing (OIDC) with no
-long-lived npm token, and a fully automatic release chain (checks, merge and publish all run
-without a human step; see the deviation note below).
+long-lived npm token, and a fully automatic release chain — release PRs auto-merge, with the
+guards in `tests/test-source-guards.mjs` standing in for human confirmation (standard 0.8.8,
+section 3.4, 2026-10-14).
 
 Release secrets (GitHub shows no expiry through its API — read the date on the token page and
 record the renewal here):
@@ -60,15 +61,6 @@ key.
 
 Known deviations (checked 2026-10-14):
 
-- **Release PRs are merged automatically (2026-10-14, maintainer decision).** The standard's
-  section 3.4 asks for release PRs to be confirmed by a person. Here they auto-merge like any
-  owner PR, because the goal is a chain that needs no human step (check → approve → merge →
-  publish). The failure that gate existed for — 2026-09-11: hand-edited version metadata made
-  Release Please compute a wrong major version, and the auto-merged release PR published it — is
-  now covered by machine guards in `tests/test-source-guards.mjs` (a normal PR cannot touch
-  version metadata; a release PR may only touch the four version files and must keep
-  `package.json` and the manifest in agreement). The standard source has not been updated yet;
-  this entry records the deviation until it is.
 - `.release-please-manifest.json` was seeded by hand with the released version (`0.5.3`) when this
   repository moved from the action's inline `release-type: node` to a config file, because
   release-please requires a manifest at the tip of the branch before its first run. This is the
