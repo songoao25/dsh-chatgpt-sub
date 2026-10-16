@@ -262,6 +262,7 @@ function writeAuthJson(filePath, currentAuth, accessToken, refreshToken, lastRef
     last_refresh: lastRefreshIso,
   }
   const tmp = filePath + '.tmp'
+  mkdirSync(dirname(filePath), { recursive: true, mode: 0o700 })
   writeFileSync(tmp, JSON.stringify(updated, null, 2) + '\n', { mode: 0o600 })
   chmodSync(tmp, 0o600)
   renameSync(tmp, filePath)

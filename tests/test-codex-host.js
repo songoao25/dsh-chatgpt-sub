@@ -1,7 +1,7 @@
 // dsh-chatgpt-sub — host 端纯函数与状态机测试（注入式，零真实网络/零真实 auth.json）
 // 提取 host.js 模块级常量与纯函数（将「常量 + 纯函数」作为一个共享作用域整体求值，
 // 使函数能解析到同模块内的兄弟函数与常量——如 decodeJwtExp 调 decodeBase64Url、buildAuthorizeUrl 用 OAUTH_SCOPE）
-import { chmodSync, readFileSync, writeFileSync, renameSync, mkdirSync, unlinkSync, rmSync, statSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync, renameSync, mkdirSync, unlinkSync, rmSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
@@ -263,6 +263,31 @@ function makeJwt(claims) {
   check('writeAuthJson 保留 auth_mode', r2.auth.auth_mode, 'oauth')
   check('writeAuthJson last_refresh 更新', r2.auth.last_refresh, '2026-08-16T00:00:00.000Z')
   check('writeAuthJson 权限为 0600', statSync(file).mode & 0o777, 0o600)
+}
+
+// ---- First sign-in without an existing Codex directory (issue #55) ----
+{
+  const temporary = mkdtempSync(join(tmpdir(), 'dsh-cgpt-first-sign-in-'))
+  try {
+    const file = join(temporary, 'new-home', '.codex', 'auth.json')
+    const auth = { auth_mode: 'oauth', tokens: { account_id: 'synthetic-account', id_token: 'synthetic-id' } }
+    writeAuthJson(file, auth, 'synthetic-access', 'synthetic-refresh', '2026-10-16T00:00:00.000Z')
+    const saved = readCodexAuthFile(file)
+    check('first sign-in creates missing parent directories', saved.ok, true)
+    check('first sign-in preserves account metadata', saved.auth.tokens.account_id, auth.tokens.account_id)
+    check('first sign-in preserves id token', saved.auth.tokens.id_token, auth.tokens.id_token)
+    check('first sign-in saves access token', saved.auth.tokens.access_token, 'synthetic-access')
+    check('first sign-in saves refresh token', saved.auth.tokens.refresh_token, 'synthetic-refresh')
+    if (process.platform !== 'win32') {
+      check('first sign-in directory permissions are 0700', statSync(dirname(file)).mode & 0o777, 0o700)
+      check('first sign-in file permissions are 0600', statSync(file).mode & 0o777, 0o600)
+      chmodSync(dirname(file), 0o750)
+      writeAuthJson(file, saved.auth, 'synthetic-access-2', 'synthetic-refresh-2', '2026-10-16T01:00:00.000Z')
+      check('existing directory permissions stay unchanged', statSync(dirname(file)).mode & 0o777, 0o750)
+    }
+  } finally {
+    rmSync(temporary, { recursive: true, force: true })
+  }
 }
 
 // ---- 测试 5：PKCE / 授权 URL / 回调解析 ----
