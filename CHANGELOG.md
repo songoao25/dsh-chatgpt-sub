@@ -2,6 +2,13 @@
 
 本项目的版本记录遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.6.2](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.6.1...v0.6.2) (2026-10-16)
+
+
+### Bug Fixes
+
+* create the auth directory before saving first sign-in ([#56](https://github.com/songoao25/dsh-chatgpt-sub/issues/56)) ([4bf7e3b](https://github.com/songoao25/dsh-chatgpt-sub/commit/4bf7e3b154666d4ceb69e2f0603a47af11c8826b))
+
 ## [0.6.1](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.6.0...v0.6.1) (2026-10-14)
 
 
