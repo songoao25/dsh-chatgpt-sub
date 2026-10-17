@@ -2,6 +2,13 @@
 
 本项目的版本记录遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.6.3](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.6.2...v0.6.3) (2026-10-17)
+
+
+### Bug Fixes
+
+* complete sign-in independently of browser launch ([#59](https://github.com/songoao25/dsh-chatgpt-sub/issues/59)) ([4576075](https://github.com/songoao25/dsh-chatgpt-sub/commit/45760759a48f2b2c09d43c43eedd5c97c97701d1))
+
 ## [0.6.2](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.6.1...v0.6.2) (2026-10-16)
 
 
