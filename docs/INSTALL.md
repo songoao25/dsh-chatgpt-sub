@@ -4,7 +4,7 @@
 
 - 已安装 DeepSeek Harness —— **桌面端客户端**，或命令行启动的 CLI profile（`dsh web`）
 - 已安装 [pnpm](https://pnpm.io/)（`dsh plugin` 与插件页的安装框都依赖它）
-- 拥有 ChatGPT Plus / Pro 订阅（或包含 Codex 额度的套餐）
+- ChatGPT 账号具备 Codex 使用权限及可用额度。插件不按免费或付费套餐阻止登录，但 OpenAI 对套餐、客户端和模型的限制仍适用；官方 Codex 可用不代表第三方 DSH 一定可用，见 [当前套餐说明](https://learn.chatgpt.com/docs/pricing)。
 
 ## 安装
 
@@ -137,6 +137,7 @@ dsh plugin --profile web remove dsh-chatgpt-sub
 | 插件页报「这个包没有声明组合包」 | 装到的是一个「仓库根不是包」的仓库。本仓库根目录一直是包；请确认填的是本仓库，并用包含最新提交的地址 |
 | 插件页提示「有依赖的安装脚本需要你允许」/「待批准的构建脚本」 | 装到的清单里声明了 `prepare` / `prepack`（本仓库当前清单没有，只有 `prepublishOnly`）。用最新提交的仓库地址重装；确实需要放行时，按提示把 pnpm 打印的那一行加进 profile 的 `pnpm-workspace.yaml` 的 `allowBuilds` 再重试 |
 | 命令行报 `profile "desktop" is managed exclusively by the Electron application` | 桌面端客户端的 profile 不能用 CLI 改：请在客户端 **插件 → 添加插件** 里安装/卸载 |
+| 浏览器授权后仍未连接 | 更新插件并由你自行重启 DSH 后重试。浏览器的成功提示只在 DSH 连接完成后出现；若失败，返回插件页记录错误文字，并提供 DSH 版本、插件运行版本及 Windows 版本。不要上传登录文件、完整授权网址或账号资料 |
 | 点绑定没反应/浏览器没打开 | ① 检查是否允许 DSH 弹窗；② 重启 DSH 后再试 |
 | 提示「回调端口被占用」 | 端口 1455 被其他程序占用（如正在运行的 codex 登录流程），关闭占用程序后重试 |
 | 授权超时（5 分钟） | 重新点「绑定 ChatGPT 账号」再试；确认浏览器完成了授权 |
