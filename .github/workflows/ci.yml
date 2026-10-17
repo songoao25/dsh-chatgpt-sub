@@ -12,8 +12,12 @@ on:
 jobs:
   CI:
     needs: windows-oauth
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
+      - name: Require Windows sign-in checks to pass
+        if: needs.windows-oauth.result != 'success'
+        run: exit 1
       # fetch-depth: 0 —— tests/test-source-guards.mjs 的发布元数据守卫要与基线做完整
       # diff，才能判断本 PR 有没有手工改版本号；浅克隆会让它取不到基线而跳过检查。
       - uses: actions/checkout@v7
