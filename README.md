@@ -6,7 +6,7 @@
 [![Release](https://img.shields.io/github/v/release/SONGOAO25/dsh-chatgpt-sub)](https://github.com/SONGOAO25/dsh-chatgpt-sub/releases)
 [![npm version](https://img.shields.io/npm/v/dsh-chatgpt-sub)](https://www.npmjs.com/package/dsh-chatgpt-sub)
 
-A DeepSeek Harness plugin that connects your ChatGPT account through OpenAI's sign-in page and lets you use the account's available ChatGPT models inside DSH. You need a plan that includes Codex access and sufficient subscription quota.
+A DeepSeek Harness plugin that connects your ChatGPT account through OpenAI's sign-in page and lets you use the account's available ChatGPT models inside DSH. You need an account with Codex access and sufficient quota. The plugin does not reject Free accounts, but sign-in alone does not establish access to models in DSH; availability depends on OpenAI’s plan, client and model restrictions. See [OpenAI’s current plan information](https://learn.chatgpt.com/docs/pricing).
 
 ## What it does
 
@@ -43,6 +43,8 @@ Local installs, Windows guidance, updating and troubleshooting: [docs/INSTALL.md
 ## Settings
 
 Open **Plugins → ChatGPT Subscription** and choose **Sign in with ChatGPT**. Complete authorization in the browser; when the page shows **Connected**, select a ChatGPT model in the conversation model picker. Allow DSH pop-ups if the authorization page does not open.
+
+The browser confirms success only after the plugin has saved the sign-in and connected it to DSH. If that fails, return to the plugin page for the error; do not share sign-in files or authorization URLs.
 
 **Sign in again** renews the binding. **Unbind** disconnects the account from this plugin. An existing Codex CLI sign-in is not automatically adopted by the plugin.
 

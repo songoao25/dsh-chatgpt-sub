@@ -6,7 +6,7 @@
 [![Release](https://img.shields.io/github/v/release/SONGOAO25/dsh-chatgpt-sub)](https://github.com/SONGOAO25/dsh-chatgpt-sub/releases)
 [![npm 版本](https://img.shields.io/npm/v/dsh-chatgpt-sub)](https://www.npmjs.com/package/dsh-chatgpt-sub)
 
-一个 DeepSeek Harness 插件：通过 OpenAI 登录页面连接 ChatGPT 账号，在 DSH 中使用该账号可用的 ChatGPT 模型。需要包含 Codex 使用权限的套餐和足够的订阅额度。
+一个 DeepSeek Harness 插件：通过 OpenAI 登录页面连接 ChatGPT 账号，在 DSH 中使用该账号可用的 ChatGPT 模型。需要账号有 Codex 使用权限和足够的额度。插件不会拒绝免费账号，但登录成功不代表能在 DSH 中使用模型；实际可用性取决于 OpenAI 对套餐、客户端和模型的限制，见 [OpenAI 当前套餐说明](https://learn.chatgpt.com/docs/pricing)。
 
 ## 功能
 
@@ -43,6 +43,8 @@ https://github.com/SONGOAO25/dsh-chatgpt-sub
 ## 设置
 
 进入 **插件 → ChatGPT 订阅**，点击「绑定 ChatGPT 账号」，在浏览器中完成授权。页面显示「已连接」后，在对话的模型选择器中选择 ChatGPT 模型。如果授权页面没有打开，请允许 DSH 的弹窗。
+
+浏览器只会在插件保存登录信息并连接到 DSH 后显示成功。失败时请返回插件页查看原因，不要分享登录文件或授权网址。
 
 「重新绑定」重新完成账号授权；「解绑」断开该账号与本插件的连接。插件不会自动使用已有的 Codex CLI 登录。
 

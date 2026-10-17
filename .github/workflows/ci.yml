@@ -11,8 +11,13 @@ on:
 
 jobs:
   CI:
+    needs: windows-oauth
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
+      - name: Require Windows sign-in checks to pass
+        if: needs.windows-oauth.result != 'success'
+        run: exit 1
       # fetch-depth: 0 —— tests/test-source-guards.mjs 的发布元数据守卫要与基线做完整
       # diff，才能判断本 PR 有没有手工改版本号；浅克隆会让它取不到基线而跳过检查。
       - uses: actions/checkout@v7
@@ -31,3 +36,15 @@ jobs:
         run: git diff --exit-code -- lib locale
       - name: Run tests
         run: node tests/run-all.mjs
+
+  windows-oauth:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+      - name: Build
+        run: npm run build
+      - name: Verify isolated sign-in completion and failure handling
+        run: node tests/test-oauth-localization.mjs
