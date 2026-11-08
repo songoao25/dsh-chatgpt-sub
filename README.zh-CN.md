@@ -5,6 +5,10 @@
 [![License: MIT](https://img.shields.io/github/license/SONGOAO25/dsh-chatgpt-sub)](https://github.com/SONGOAO25/dsh-chatgpt-sub/blob/main/LICENSE)
 [![Release](https://img.shields.io/github/v/release/SONGOAO25/dsh-chatgpt-sub)](https://github.com/SONGOAO25/dsh-chatgpt-sub/releases)
 [![npm 版本](https://img.shields.io/npm/v/dsh-chatgpt-sub)](https://www.npmjs.com/package/dsh-chatgpt-sub)
+[![npm 下载量](https://img.shields.io/npm/dt/dsh-chatgpt-sub?label=downloads)](https://www.npmjs.com/package/dsh-chatgpt-sub)
+[![npm 月下载量](https://img.shields.io/npm/dm/dsh-chatgpt-sub?label=downloads%2Fmonth)](https://www.npmjs.com/package/dsh-chatgpt-sub)
+[![GitHub 星标](https://img.shields.io/github/stars/songoao25/dsh-chatgpt-sub)](https://github.com/songoao25/dsh-chatgpt-sub/stargazers)
+[![GitHub Fork](https://img.shields.io/github/forks/songoao25/dsh-chatgpt-sub)](https://github.com/songoao25/dsh-chatgpt-sub/forks)
 
 一个 DeepSeek Harness 插件：通过 OpenAI 登录页面连接 ChatGPT 账号，在 DSH 中使用该账号可用的 ChatGPT 模型。需要账号有 Codex 使用权限和足够的额度。插件不会拒绝免费账号，但登录成功不代表能在 DSH 中使用模型；实际可用性取决于 OpenAI 对套餐、客户端和模型的限制，见 [OpenAI 当前套餐说明](https://learn.chatgpt.com/docs/pricing)。
 

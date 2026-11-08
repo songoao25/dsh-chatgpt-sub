@@ -5,6 +5,10 @@
 [![License: MIT](https://img.shields.io/github/license/SONGOAO25/dsh-chatgpt-sub)](https://github.com/SONGOAO25/dsh-chatgpt-sub/blob/main/LICENSE)
 [![Release](https://img.shields.io/github/v/release/SONGOAO25/dsh-chatgpt-sub)](https://github.com/SONGOAO25/dsh-chatgpt-sub/releases)
 [![npm version](https://img.shields.io/npm/v/dsh-chatgpt-sub)](https://www.npmjs.com/package/dsh-chatgpt-sub)
+[![npm downloads](https://img.shields.io/npm/dt/dsh-chatgpt-sub?label=downloads)](https://www.npmjs.com/package/dsh-chatgpt-sub)
+[![npm monthly downloads](https://img.shields.io/npm/dm/dsh-chatgpt-sub?label=downloads%2Fmonth)](https://www.npmjs.com/package/dsh-chatgpt-sub)
+[![GitHub stars](https://img.shields.io/github/stars/songoao25/dsh-chatgpt-sub)](https://github.com/songoao25/dsh-chatgpt-sub/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/songoao25/dsh-chatgpt-sub)](https://github.com/songoao25/dsh-chatgpt-sub/forks)
 
 A DeepSeek Harness plugin that connects your ChatGPT account through OpenAI's sign-in page and lets you use the account's available ChatGPT models inside DSH. You need an account with Codex access and sufficient quota. The plugin does not reject Free accounts, but sign-in alone does not establish access to models in DSH; availability depends on OpenAI’s plan, client and model restrictions. See [OpenAI’s current plan information](https://learn.chatgpt.com/docs/pricing).
 
