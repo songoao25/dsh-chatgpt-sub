@@ -5,8 +5,8 @@
 [![License: MIT](https://img.shields.io/github/license/SONGOAO25/dsh-chatgpt-sub)](https://github.com/SONGOAO25/dsh-chatgpt-sub/blob/main/LICENSE)
 [![Release](https://img.shields.io/github/v/release/SONGOAO25/dsh-chatgpt-sub)](https://github.com/SONGOAO25/dsh-chatgpt-sub/releases)
 [![npm 版本](https://img.shields.io/npm/v/dsh-chatgpt-sub)](https://www.npmjs.com/package/dsh-chatgpt-sub)
-[![npm 下载量](https://img.shields.io/npm/dt/dsh-chatgpt-sub?label=downloads)](https://www.npmjs.com/package/dsh-chatgpt-sub)
-[![npm 月下载量](https://img.shields.io/npm/dm/dsh-chatgpt-sub?label=downloads%2Fmonth)](https://www.npmjs.com/package/dsh-chatgpt-sub)
+[![npm 下载量](https://badgen.net/npm/dt/dsh-chatgpt-sub?label=downloads)](https://www.npmjs.com/package/dsh-chatgpt-sub)
+[![npm 月下载量](https://badgen.net/npm/dm/dsh-chatgpt-sub?label=downloads%2Fmonth)](https://www.npmjs.com/package/dsh-chatgpt-sub)
 [![GitHub 星标](https://img.shields.io/github/stars/songoao25/dsh-chatgpt-sub)](https://github.com/songoao25/dsh-chatgpt-sub/stargazers)
 [![GitHub Fork](https://img.shields.io/github/forks/songoao25/dsh-chatgpt-sub)](https://github.com/songoao25/dsh-chatgpt-sub/forks)
 
