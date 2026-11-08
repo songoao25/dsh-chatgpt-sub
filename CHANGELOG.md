@@ -2,6 +2,13 @@
 
 本项目的版本记录遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.6.4](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.6.3...v0.6.4) (2026-11-08)
+
+
+### Documentation
+
+* **readme:** add live GitHub and npm stats badges ([#61](https://github.com/songoao25/dsh-chatgpt-sub/issues/61)) ([a3d4915](https://github.com/songoao25/dsh-chatgpt-sub/commit/a3d491529f1281faeca2fe234f203d8054080b84))
+
 ## [0.6.3](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.6.2...v0.6.3) (2026-10-17)
 
 
