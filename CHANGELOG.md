@@ -2,6 +2,13 @@
 
 本项目的版本记录遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.7.0](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.6.5...v0.7.0) (2026-11-12)
+
+
+### Features
+
+* **plugin-page:** show a short detail document instead of the whole README ([#65](https://github.com/songoao25/dsh-chatgpt-sub/issues/65)) ([06fd3cc](https://github.com/songoao25/dsh-chatgpt-sub/commit/06fd3cc0b81db23a179407108ae49c2d2e317732))
+
 ## [0.6.5](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.6.4...v0.6.5) (2026-11-08)
 
 
