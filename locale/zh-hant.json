@@ -1,6 +1,7 @@
 {
   "meta": {
     "title": "ChatGPT 訂閱",
-    "description": "使用 ChatGPT 帳號登入，在 DSH 中使用 ChatGPT 模型。"
+    "description": "使用 ChatGPT 帳號登入，在 DSH 中使用 ChatGPT 模型。",
+    "detail": "docs/DETAIL.zh-Hant.md"
   }
 }

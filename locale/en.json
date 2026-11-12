@@ -1,6 +1,7 @@
 {
   "meta": {
     "title": "ChatGPT Subscription",
-    "description": "Sign in with your ChatGPT account to use ChatGPT models in DSH."
+    "description": "Sign in with your ChatGPT account to use ChatGPT models in DSH.",
+    "detail": "docs/DETAIL.md"
   }
 }

@@ -27,9 +27,9 @@ assert.deepEqual(readdirSync(join(root, 'locale')).sort(), Object.keys(LOCALES).
 const en = readJson('locale/en.json')
 const zh = readJson('locale/zh.json')
 assert.deepEqual(Object.keys(en.meta).sort(), Object.keys(zh.meta).sort(), 'en/zh meta must declare the same fields')
-assert.deepEqual(Object.keys(en.meta).sort(), ['description', 'title'], 'plugin metadata carries a title and a description')
+assert.deepEqual(Object.keys(en.meta).sort(), ['description', 'detail', 'title'], 'plugin metadata carries a title, a description and the plugin-page detail document')
 for (const [lang, meta] of [['en', en.meta], ['zh', zh.meta]]) {
-  for (const field of ['title', 'description']) {
+  for (const field of ['title', 'description', 'detail']) {
     assert.equal(typeof meta[field], 'string', lang + '.' + field + ' must be a string')
     assert.ok(meta[field].trim() !== '', lang + '.' + field + ' must not be blank')
   }
@@ -43,6 +43,26 @@ assert.equal(pkg.exports['./locale/*.json'], './locale/*.json',
 assert.ok(pkg.files.includes('locale/*.json'), 'the published tarball must include locale/*.json')
 assert.equal(pkg.description, en.meta.description,
   'package.json description is the English fallback and must equal locale/en.json meta.description')
+
+// DSH 0.2.2 起，插件页的「详细介绍」优先读 locale meta.detail 指定的 Markdown；
+// 没有 meta.detail 就回退整篇 README（README 是给 npm / GitHub 看的，放进插件页太长）。
+// 这条契约错了不报错、只会悄悄退回长 README，因此在这里锁住。
+const detailDocs = [
+  ['en', 'docs/DETAIL.md'],
+  ['zh', 'docs/DETAIL.zh.md'],
+  ['zh-hant', 'docs/DETAIL.zh-Hant.md'],
+]
+for (const [language, path] of detailDocs) {
+  const meta = readJson('locale/' + language + '.json').meta
+  assert.equal(meta.detail, path, language + ' locale must name its plugin-page detail document')
+  assert.match(path, /^docs\/[^/]+\.md$/, 'meta.detail is a package-relative Markdown path under docs/')
+  assert.ok(pkg.files.includes(path), 'the published tarball must include ' + path)
+  const markdown = readFileSync(join(root, path), 'utf8').trim()
+  assert.ok(markdown.length > 0, path + ' must not be empty')
+  assert.ok(markdown.length <= 800, path + ' must stay short enough for the plugin page')
+}
+assert.doesNotMatch(readFileSync(join(root, 'docs/DETAIL.md'), 'utf8'), /\p{Script=Han}/u, 'the English detail document is English')
+assert.match(readFileSync(join(root, 'docs/DETAIL.zh.md'), 'utf8'), /\p{Script=Han}/u, 'the Chinese detail document is Chinese')
 
 // ---------- 3. client half 的字典 ----------
 const zhKeys = Object.keys(LOCALES.zh)
