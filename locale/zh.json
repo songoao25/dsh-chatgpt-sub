@@ -1,6 +1,7 @@
 {
   "meta": {
     "title": "ChatGPT 订阅",
-    "description": "用 ChatGPT 账号登录，在 DSH 里使用 ChatGPT 模型。"
+    "description": "用 ChatGPT 账号登录，在 DSH 里使用 ChatGPT 模型。",
+    "detail": "docs/DETAIL.zh.md"
   }
 }
