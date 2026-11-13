@@ -57,10 +57,6 @@ module.exports = {
       return typeof member === 'function' || (member && typeof member === 'object') ? member : null;
     }
     var NativeButton = native('Button');
-    // 状态标签与状态点：宿主 Tag 自带 success/danger 色调、StateDot 自带 done/error/…
-    // 这两种正是状态行要表达的语义，不再自绘（自绘版本见 .cgpt-status--* 兜底）。
-    var NativeTag = native('Tag');
-    var NativeStateDot = native('StateDot');
     // 自动/手动是「二选一」，宿主对应用 SegmentedControl（tablist + 滑动指示块 + 方向键走位）。
     var NativeSegmentedControl = native('SegmentedControl');
     // 下拉选择：浏览器原生 <select> 是操作系统自带的古老控件（灰色直角框 + 系统菜单），
@@ -121,19 +117,16 @@ module.exports = {
     }
 
     // ---------- 样式 ----------
-    // 排版照宿主**插件详情页**那一套原生度量（dsh-client-ui-plugin-manager 的 X_2TxG_*）：
-    //   detailSection  { flex-col; gap:12px }  → .cgpt-page（本页是详情页里的**一个** section，
-    //                                            再套 detailSections 的 32px 会凭空多出大段空白）
-    //   rows           { flex-col; gap:0 }     → .cgpt-list
-    //   row            { padding:12px 2px; border-bottom:.5px solid border-l2 } → .cgpt-row
-    //   row:last-child { border-bottom:0 }
-    //   rowLine        { align-items:center; gap:16px } → .cgpt-row 的主轴间距
-    //   rowId          { 13.5/500/20 }         → .cgpt-rowTitle
-    //   failure/reason { 错误色; 12/18; 可换行 }    → .cgpt-alert--error
-    // 【横向对齐铁律】宿主的 .X_2TxG_detailSection（配置区挂载点）实测 x=323.2、padding:0，
-    // 宿主自己的区块标题文字左边界也是 323.2。所以我们的每个内容块都**不能自带左右内边距**，
-    // 否则整体右移、与宿主自己渲染的区块错开——那正是「什么都对不齐」的根因。
-    // 行本身用 padding:12px 2px（宿主 .X_2TxG_row 的真实值），内容内缩 2px，与宿主一致。
+    // 2026-11-13 设计体系迁移：排版基线从「宿主插件详情页的扁平行列表」换成
+    // DSH 0.2.2 settings-form 的卡片语法（与 dsh-bottom-info-bar 同步）：
+    //   rowCard  { fill/stroke + radius-xl + 12px 14px 内衬 }  → .cgpt-card（每个区块一张卡）
+    //   rows     { 列向 gap:8px，无分隔线 }                     → .cgpt-page 的卡间节奏
+    //   卡内行   { 8px 圆角 + hover interactive-bg-hover + 120ms ease } → .cgpt-row
+    //   折叠     { 右「展开/收起」+ 箭头，grid 0fr→1fr }        → .cgpt-cardDisclosure/.cgpt-collapse
+    //   状态徽章 { 软底胶囊 16px/7px/999/currentColor 14%/600 } → .cgpt-pill
+    //   字段     { 32px / r12 / bg-layer-1 }                    → .cgpt-language（下拉兜底）
+    // 【横向对齐铁律】卡内行的 10px 横向内衬只用于 hover 填充外扩，文字一律用负 margin
+    // 压回卡面 14px 内衬线——标题与行文字落在同一缩进线上，不再出现碎节奏。
     // 全部走 --dsw-alias-* 令牌，深色/浅色主题自动跟随。
     function installStyles() {
       var id = 'dsh-chatgpt-sub-page';
@@ -142,7 +135,79 @@ module.exports = {
       style.dataset.plugin = 'dsh-chatgpt-sub';
       style.dataset.pluginCss = id;
       style.textContent = `
-        /* 宽度上限交给宿主：.X_2TxG_page > * 已把内容钉在 min(100%, 960px)，这里再写死 760px 会在宽视口下压窄内容、右侧控件够不到宿主右边界。 */
+        /* ============================================================================
+           2026-11-13 设计体系迁移（DSH 0.2.2 settings-form 卡片语法，与 dsh-bottom-info-bar 同步）：
+           原生设置表单已卡片化 —— rowCard { .5px settings-card-stroke / settings-card-fill /
+           radius-xl(20px) / 12px 14px 内衬 }，卡与卡之间 gap 8px；卡内行与行、节与节之间
+           **没有任何分隔线**，分层只靠留白（节间距 24px）。本页整体迁移到该语法，
+           废除全部 .5px 发丝线。度量抽成 --cgpt-* 变量，规则只引用变量。
+           【行语法】行是可交互面：8px 圆角 + hover 浅填充（--dsw-alias-interactive-bg-hover，
+           过渡 120ms ease）；行自带 10px 横向内衬并用负 margin 抵掉 —— 文字仍压在卡面
+           14px 内衬线上，hover 填充层比文字宽出内衬量（文字贴线、填充外扩）。
+           【宽度铁律】宿主 .X_2TxG_page > * 已把内容钉在 min(100%, 960px)，本页不得再写 px 级 max-width。 */
+        .cgpt-page {
+          --cgpt-card-fill: var(--dsw-alias-settings-card-fill, var(--dsw-alias-bg-layer-2, rgba(128,128,128,0.05)));
+          --cgpt-card-stroke: var(--dsw-alias-settings-card-stroke, var(--dsw-alias-border-l4, rgba(128,128,128,0.22)));
+          --cgpt-card-radius: var(--dsw-radius-xl, 20px);
+          --cgpt-card-pad-block: 12px; --cgpt-card-pad-inline: 14px;
+          --cgpt-card-gap: 8px; --cgpt-section-gap: 24px; --cgpt-inner-gap: 12px;
+          --cgpt-control-radius: 8px;
+          --cgpt-row-pad-block: 8px; --cgpt-row-pad-inline: 10px;
+          --cgpt-row-gap: 16px;
+          --cgpt-title-size: 14px; --cgpt-title-weight: 500; --cgpt-title-line: 20px;
+          --cgpt-desc-size: 13px; --cgpt-desc-line: 18px;
+          --cgpt-row-label-size: 13.5px; --cgpt-row-label-weight: 500; --cgpt-row-label-line: 20px;
+          --cgpt-row-hint-size: 11.5px; --cgpt-row-hint-line: 16px;
+          --cgpt-input-height: 32px; --cgpt-input-radius: var(--dsw-radius-md, 12px); --cgpt-input-pad-inline: 10px;
+          --cgpt-input-bg: var(--dsw-alias-bg-layer-1);
+          box-sizing: border-box; display: flex; flex-direction: column; gap: var(--cgpt-card-gap);
+          width: 100%; max-width: 100%; min-width: 0; color: var(--dsw-alias-label-primary);
+        }
+        .cgpt-page, .cgpt-page * { box-sizing: border-box; }
+        /* 设置卡：表面/描边/圆角/内衬全部取宿主 rowCard 同款 token。卡内不画任何线。 */
+        .cgpt-card { display: flex; flex-direction: column; gap: var(--cgpt-inner-gap); width: 100%; max-width: 100%; min-width: 0; border: 0.5px solid var(--cgpt-card-stroke); background: var(--cgpt-card-fill); border-radius: var(--cgpt-card-radius); padding: var(--cgpt-card-pad-block) var(--cgpt-card-pad-inline); }
+        /* 一级卡头（静态）：标题 + 一句话说明（说明可以是动态摘要，如已连接账号）。 */
+        .cgpt-cardHead { display: flex; flex-direction: column; gap: 0; width: 100%; min-width: 0; }
+        .cgpt-cardTitle { margin: 0; font-size: var(--cgpt-title-size); font-weight: var(--cgpt-title-weight); line-height: var(--cgpt-title-line); color: var(--dsw-alias-label-primary); }
+        .cgpt-cardDesc { margin: 0; padding-top: 2px; font-size: var(--cgpt-desc-size); line-height: var(--cgpt-desc-line); color: var(--dsw-alias-label-secondary); overflow-wrap: anywhere; }
+        /* 折叠卡头：左「标题 + 说明」文字块、右「展开/收起」+ 箭头；整块是一个可点击面。
+           横向内衬只用于 hover 外扩 —— 文字用负 margin 压回卡面 14px 内衬线（与行同一条铁律）。 */
+        .cgpt-cardDisclosure { appearance: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: var(--cgpt-row-gap); width: 100%; min-width: 0; margin: 0; margin-inline: calc(-1 * var(--cgpt-row-pad-inline)); padding: var(--cgpt-row-pad-block) var(--cgpt-row-pad-inline); border: 0; border-radius: var(--cgpt-control-radius); background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; transition: background-color 120ms ease; }
+        .cgpt-cardDisclosure:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,0.06)); }
+        .cgpt-cardDisclosure:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: -2px; }
+        .cgpt-cardDisclosureText { display: flex; flex-direction: column; gap: 0; min-width: 0; }
+        .cgpt-cardAction { display: inline-flex; align-items: center; gap: 4px; flex: none; color: var(--dsw-alias-label-secondary); font-size: 13px; font-weight: 500; line-height: 20px; white-space: nowrap; }
+        .cgpt-cardDisclosure:hover .cgpt-cardAction { color: var(--dsw-alias-label-primary); }
+        /* 折叠体：grid-template-rows 0fr→1fr 参与过渡（高度本身在动），保持挂载不卸载；
+           收合态三件套：0fr（无高度）+ opacity（淡出）+ visibility（不可见且不可聚焦）。 */
+        .cgpt-collapse { display: grid; grid-template-rows: 0fr; width: 100%; min-width: 0; overflow: hidden; opacity: 0; visibility: hidden; contain: layout paint; transition: grid-template-rows 150ms cubic-bezier(0.4, 0, 0.2, 1), opacity 120ms ease, visibility 0s linear 150ms; }
+        .cgpt-collapse--expanded { grid-template-rows: 1fr; opacity: 1; visibility: visible; transition: grid-template-rows 150ms cubic-bezier(0.4, 0, 0.2, 1), opacity 120ms ease 30ms, visibility 0s linear 0s; }
+        .cgpt-collapseInner { min-width: 0; min-height: 0; overflow: visible; }
+        /* 卡内正文：节与节之间只靠留白（24px），节内行组没有任何分隔线。 */
+        .cgpt-body { display: flex; flex-direction: column; gap: var(--cgpt-section-gap); width: 100%; min-width: 0; }
+        .cgpt-rows { display: flex; flex-direction: column; gap: 0; width: 100%; min-width: 0; }
+        /* 行 = 设置卡内的标准行：左「标题 + 说明」两行堆叠（文字块 flex:1）、右控件垂直居中
+           右对齐；行间只有行自带的 8px 纵向留白（相邻两行 = 16px 呼吸）。 */
+        .cgpt-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--cgpt-row-gap); width: 100%; min-width: 0; margin: 0; margin-inline: calc(-1 * var(--cgpt-row-pad-inline)); padding: var(--cgpt-row-pad-block) var(--cgpt-row-pad-inline); border: 0; border-radius: var(--cgpt-control-radius); transition: background-color 120ms ease; }
+        .cgpt-row:hover { background: var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,0.06)); }
+        .cgpt-rowText { display: flex; flex-direction: column; flex: 1; gap: 2px; min-width: 0; }
+        .cgpt-rowTitle { display: flex; align-items: center; gap: 6px; font-size: var(--cgpt-row-label-size); font-weight: var(--cgpt-row-label-weight); line-height: var(--cgpt-row-label-line); color: var(--dsw-alias-label-primary); }
+        .cgpt-rowDesc { margin: 0; font-size: var(--cgpt-row-hint-size); line-height: var(--cgpt-row-hint-line); color: var(--dsw-alias-label-tertiary); overflow-wrap: anywhere; }
+        .cgpt-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
+        /* 状态徽章（已连接 / 需要注意 / 待重启 / 更新失败）：软底胶囊 —— 底色由文字色派生
+           （color-mix currentColor 14%），换色只改 color 一处；16px 高与行文字基线对齐。
+           禁止实色底与描边色块。 */
+        .cgpt-pill { display: inline-flex; align-items: center; flex: none; height: 16px; padding: 0 7px; border: 0; border-radius: 999px; background: color-mix(in srgb, currentColor 14%, transparent); color: var(--dsw-alias-label-secondary); font-size: 11px; font-weight: 600; line-height: 1; white-space: nowrap; }
+        .cgpt-pill--success { color: var(--dsw-alias-state-success-primary, #087f5b); }
+        .cgpt-pill--danger { color: var(--dsw-alias-state-error-primary, #d92d20); }
+        /* 按钮兜底几何 = 宿主 primitives Button.module.css 的 .sm + .outline（原生路径不生效）。
+           走原生时只额外加 .cgpt-btn--danger（宿主没有 danger 变体），绝不叠兜底几何。 */
+        .cgpt-btn { appearance: none; font: inherit; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 28px; border: 0.5px solid var(--dsw-alias-border-l3); color: var(--dsw-alias-label-primary); background: transparent; border-radius: var(--dsw-radius-sm, 8px); padding: 0 10px; font-size: 12px; font-weight: 400; line-height: 18px; transition: background-color 120ms ease, border-color 120ms ease; }
+        .cgpt-btn:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,0.08)); }
+        .cgpt-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        /* 危险按钮配色照原生 .X_2TxG_danger：错误色文字 + 30% 错误色描边 + 8% 错误色 hover 底。 */
+        .cgpt-btn--danger { color: var(--dsw-alias-state-error-primary, #d92d20); border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary, #d92d20) 30%, transparent); }
+        .cgpt-btn--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #d92d20) 8%, transparent); }
         /* 语言选择器：宿主原生 Menu 弹层（锚点 = 原生 outline 按钮）。下面这几条只做布局，
            外观（边框/圆角/hover/焦点/禁用）全部由宿主 Button 维护。 */
         .cgpt-selectTrigger { max-width: 100%; }
@@ -151,64 +216,29 @@ module.exports = {
         .cgpt-selectValue { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .cgpt-selectChevron { flex: none; color: var(--dsw-alias-label-tertiary); }
         .cgpt-selectChevronGlyph { flex: none; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid currentColor; color: var(--dsw-alias-label-tertiary); }
-        /* 兜底（宿主没有 Menu 时）：浏览器 <select>，度量照 settings-form/fields.module.css 的 .input
-           （34px / radius md / 0.5px border-l4 / bg-layer-3 / 13px），与设置页里的输入框同高同形。 */
-        .cgpt-language { max-width: 100%; min-width: 0; height: 34px; padding: 0 12px; font: inherit; font-size: 13px; line-height: 1.5; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-3); border: 0.5px solid var(--dsw-alias-border-l4); border-radius: var(--dsw-radius-md, 12px); }
+        /* 兜底（宿主没有 Menu 时）：浏览器 <select>，度量照宿主 0.2.2 settings-form fields.module.css
+           的 .input —— 32px / r12 / bg-layer-1；同一页所有下拉/输入框尺寸一致、右缘对齐。 */
+        .cgpt-language { max-width: 100%; min-width: 0; height: var(--cgpt-input-height); padding: 0 var(--cgpt-input-pad-inline); font: inherit; font-size: 14px; line-height: 1.5; color: var(--dsw-alias-label-primary); background: var(--cgpt-input-bg); border: 0.5px solid var(--dsw-alias-border-l4); border-radius: var(--cgpt-input-radius); }
         .cgpt-language:focus-visible { outline: none; border-color: var(--dsw-alias-state-business-primary); }
-        /* 区块节奏照宿主：.detailSections{gap:32px} → 区块之间 32px；.detailSection{gap:12px} → 区块内部 12px。
-           2026-10-14 与 dsh-bottom-info-bar 统一：两个插件的设置页用同一套行/区块语法。 */
-        .cgpt-page { display: flex; flex-direction: column; width: 100%; max-width: 100%; min-width: 0; gap: 32px; color: var(--dsw-alias-label-primary); }
-        .cgpt-page, .cgpt-page * { box-sizing: border-box; }
-        /* 行 = 原生详情页的 .X_2TxG_row：12px 2px 内边距 + .5px 下边线（末行无线），
-           无圆角、无 hover 填充、无负外边距。分隔靠边线，所以列表 gap 为 0。 */
-        .cgpt-list { display: flex; flex-direction: column; gap: 0; width: 100%; min-width: 0; }
-        /* 行 = 宿主 .row + .rowLine + .rowMain：12px 2px 内边距、行间 .5px 分割线、末行无线。
-           控件贴右靠「文字块 flex:1」实现（与 .rowMain 的 flex:1 同一手法），不再用 space-between 硬推；
-           也不做 first-child 去内边距之类的自创覆写（宿主只有 :last-child 去线这一条）。 */
-        .cgpt-row { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; width: 100%; min-width: 0; margin: 0; padding: 12px 2px; border: 0; border-bottom: 0.5px solid var(--dsw-alias-border-l2, rgba(128,128,128,0.16)); border-radius: 0; }
-        .cgpt-row:last-child { border-bottom: 0; }
-        .cgpt-rowText { display: flex; flex-direction: column; flex: 1; gap: 2px; min-width: 0; }
-        .cgpt-rowTitle { display: flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 500; line-height: 20px; color: var(--dsw-alias-label-primary); }
-        .cgpt-rowDesc { font-size: 11.5px; line-height: 16px; color: var(--dsw-alias-label-tertiary); overflow-wrap: anywhere; }
-        .cgpt-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
-        /* 状态标签：走宿主原生 Tag（11px 胶囊，tone=success/danger）+ StateDot。
-           2026-10-13 改：宿主 Tag 现在自带 success/danger 两点色（10% color-mix），
-           正是当年手抄的那套配色，所以自绘药丸与圆点整体删掉，只留一个 gap。 */
-        .cgpt-status { gap: 6px; }
-        /* 兜底状态点：宿主 StateDot 是 10px 槽 + 6px currentColor 实心核，这里取核的尺寸。 */
-        .cgpt-statusDot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-        /* 兜底（宿主没 primitives 时）：几何与配色照抄 Tag.module.css 的 success/danger。 */
-        .cgpt-status--success { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 1px 8px; font-size: 11px; line-height: 17px; font-weight: 500; white-space: nowrap; color: var(--dsw-alias-state-success-primary, #087f5b); background: color-mix(in srgb, var(--dsw-alias-state-success-primary, #087f5b) 10%, transparent); }
-        .cgpt-status--danger { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 1px 8px; font-size: 11px; line-height: 17px; font-weight: 500; white-space: nowrap; color: var(--dsw-alias-state-error-primary, #d92d20); background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #d92d20) 10%, transparent); }
-        /* 按钮兜底几何 = 宿主 primitives Button.module.css 的 .sm + .outline：
-           28px 高 / radius-sm / 0 10px / 12·18 / 0.5px border-l3。走原生 Button 时这份不生效。 */
-        .cgpt-btn { appearance: none; font: inherit; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 28px; border: 0.5px solid var(--dsw-alias-border-l3); color: var(--dsw-alias-label-primary); background: transparent; border-radius: var(--dsw-radius-sm, 8px); padding: 0 10px; font-size: 12px; font-weight: 400; line-height: 18px; transition: background-color 120ms ease, border-color 120ms ease; }
-        .cgpt-btn:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,0.08)); }
-        .cgpt-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-        /* 危险按钮：宿主 Button 没有 danger 变体（所以这条在原生路径下也保留）。
-           配色照原生 .X_2TxG_danger：错误色文字 + 30% 错误色描边 + 8% 错误色 hover 底。 */
-        .cgpt-btn--danger { color: var(--dsw-alias-state-error-primary, #d92d20); border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary, #d92d20) 30%, transparent); }
-        .cgpt-btn--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--dsw-alias-state-error-primary, #d92d20) 8%, transparent); }
-        /* 错误提示：照原生 failure/reason 形态 */
-        .cgpt-alerts { display: flex; flex-direction: column; gap: 12px; width: 100%; min-width: 0; padding: 0; }
+        /* disclosure 箭头：宿主图标展开态旋转 SVG 本身；两边都取不到时退回 CSS 画的箭头。
+           绝不把 undefined 交给 React.createElement。 */
+        .cgpt-chevron { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; flex: none; color: currentColor; pointer-events: none; }
+        .cgpt-chevronIcon { display: block; width: 14px; height: 14px; transform-box: fill-box; transform-origin: center; transition: transform 160ms cubic-bezier(0.32, 0.72, 0, 1); }
+        .cgpt-chevronIcon--expanded { transform: rotate(180deg); }
+        .cgpt-chevronGlyph { display: block; width: 6px; height: 6px; margin-top: -3px; border-right: 1.6px solid currentColor; border-bottom: 1.6px solid currentColor; transform: rotate(45deg); transition: transform 160ms cubic-bezier(0.32, 0.72, 0, 1); }
+        .cgpt-chevron[data-expanded="true"] .cgpt-chevronGlyph { transform: rotate(225deg); }
+        /* 错误/提示：错误照原生 failure/reason 形态（行内 flex + 错误色 + 可任意换行）。 */
         .cgpt-alert { width: 100%; min-width: 0; margin: 0; font-size: 12px; line-height: 18px; }
-        /* 错误：照原生 .X_2TxG_failure（行内 flex + 错误色 + gap 10）+ .X_2TxG_reason（12/18 可换行）。 */
         .cgpt-alert--error { display: flex; align-items: center; gap: 10px; color: var(--dsw-alias-state-error-primary, #d92d20); overflow-wrap: anywhere; white-space: pre-wrap; }
         .cgpt-alertText { flex: 1 1 auto; min-width: 0; }
+        /* 页面级事实（隐私说明）：以安静的小字跟随账号卡，不独立成区块。 */
         .cgpt-note { width: 100%; margin: 0; padding: 0; color: var(--dsw-alias-label-tertiary); font-size: 12px; line-height: 18px; overflow-wrap: anywhere; }
-        /* 区块之间只用间距，不画线（宿主 .detailSections 就是 gap:32px）。 */
-        .cgpt-updates { display: flex; flex-direction: column; gap: 12px; width: 100%; min-width: 0; }
-        /* 区块头照宿主 .sectionHead + .sectionTitle：标题 14/500/20，说明 13/18 二级色。 */
-        .cgpt-sectionHead { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-        .cgpt-sectionTitle { margin: 0; font-size: 14px; font-weight: 500; line-height: 20px; color: var(--dsw-alias-label-primary); }
-        .cgpt-sectionDesc { margin: 0; font-size: 13px; line-height: 18px; color: var(--dsw-alias-label-secondary); }
-        /* 自动 / 手动是「二选一」——用宿主原生 SegmentedControl（tablist + 滑动指示块）。
-           .cgpt-mode 只兜底：宿主取不到该原子时退回两个按钮并排，选中态用描边 + hover 底表示。 */
+        .cgpt-loading { margin: 0; padding: 0; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
+        /* 更新方式兜底（宿主没有 SegmentedControl 时退回两个 role=radio 按钮）。 */
         .cgpt-mode { display: flex; flex-wrap: wrap; gap: 4px; }
         .cgpt-mode .cgpt-btn[aria-checked="true"] { background: var(--dsw-alias-interactive-bg-hover, rgba(128,128,128,0.08)); border-color: var(--dsw-alias-brand-primary); }
-        .cgpt-loading { margin: 0; padding: 0; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
         @media (max-width: 600px) { .cgpt-row { align-items: flex-start; } .cgpt-controls { justify-content: flex-start; margin-left: 0; } }
-        @media (prefers-reduced-motion: reduce) { .cgpt-btn { transition: none; } }
+        @media (prefers-reduced-motion: reduce) { .cgpt-btn, .cgpt-row, .cgpt-cardDisclosure, .cgpt-collapse, .cgpt-chevronIcon, .cgpt-chevronGlyph { transition: none; } }
       `;
       document.head.appendChild(style);
     }
@@ -248,16 +278,29 @@ module.exports = {
       }, props.children);
     }
 
-    // 状态标签：宿主原生 Tag + StateDot；取不到就退回同几何同配色的 .cgpt-status--*。
-    function cgptStatus(props) {
-      var dot = props.state
-        ? (NativeStateDot
-          ? h(NativeStateDot, { state: props.state, key: 'dot' })
-          : h('span', { className: 'cgpt-statusDot', key: 'dot' }))
-        : null;
-      var children = dot === null ? props.children : [dot, props.children];
-      if (NativeTag) return h(NativeTag, { tone: props.tone, className: 'cgpt-status', key: props.key }, children);
-      return h('span', { className: 'cgpt-status cgpt-status--' + props.tone, key: props.key }, children);
+    // 状态徽章：软底胶囊（DSH 0.2.2 状态徽章语法，2026-11-13 与 dsh-bottom-info-bar 同步）。
+    // 底色由文字色派生（color-mix currentColor 14%）：tone 只改 color 一处，明暗主题
+    // 都不引入新的前景/背景配对。不再走宿主 Tag —— 它的 500 字重 / 10% 底 / 非 16px 高
+    // 与本页状态徽章规范不同（规范钦定 600 字重、16px 高、14% 底）。
+    function cgptPill(props) {
+      return h('span', {
+        className: 'cgpt-pill cgpt-pill--' + props.tone,
+        key: props.key,
+      }, props.children);
+    }
+
+    // 折叠卡头的箭头：宿主原生下箭头优先（展开态旋转 SVG 本身，跨宿主版本仍是上下方向）；
+    // 导出名跟着宿主版本变过（Regular/Medium 档位 vs 旧的 14），都取不到时退回 CSS 画的箭头。
+    // 绝不把 undefined 交给 React.createElement（React #130 整块白屏的教训）。
+    function cgptChevron(props) {
+      var glyph = NativeChevron
+        ? h(NativeChevron, { size: 14, className: 'cgpt-chevronIcon' + (props.expanded ? ' cgpt-chevronIcon--expanded' : '') })
+        : h('span', { className: 'cgpt-chevronGlyph', 'aria-hidden': 'true' });
+      return h('span', {
+        className: 'cgpt-chevron',
+        'data-expanded': props.expanded ? 'true' : 'false',
+        'aria-hidden': 'true',
+      }, glyph);
     }
 
     // 二选一控件：宿主原生 SegmentedControl；取不到就退回一组 role=radio 的按钮
@@ -418,6 +461,8 @@ module.exports = {
           controls ? hList('div', { className: 'cgpt-controls' }, controls) : null);
       }
       var shown = function (version) { return version || t('ui.versionUnknown'); };
+      // 折叠状态：更新卡是 disclosure —— 卡头右侧「展开/收起」+ 箭头，grid 动画过渡；默认展开。
+      var openState = React.useState(true), open = openState[0], setOpen = openState[1];
       if (state) {
         var latest = state.latest;
         var held = state.holdVersion && state.holdVersion === latest;
@@ -425,28 +470,40 @@ module.exports = {
         // 磁盘比运行版本旧；downgrade = 磁盘比运行版本旧，但不是用户回滚的（插件被外部装成了旧版）。
         // 三者都只有重启才生效，但说法必须分开：把外部降级说成「已回滚」既冤枉用户又让人看不懂。
         var restartKind = cgptRestartKind(state);
-        var statusText = t(latest ? 'ui.updateUpToDate' : 'ui.updateErrorCheckFailed');
-        if (state.disabled) statusText = t('ui.updateDisabled');
-        else if (phase === 'install') statusText = t('ui.updateInstalling', { version: shown(latest) });
-        else if (restartKind === 'update') statusText = t('ui.updatePendingRestart', { version: shown(state.diskVersion) });
-        else if (restartKind === 'rollback') statusText = t('ui.updateRolledBack', { version: shown(state.diskVersion) });
-        else if (restartKind === 'downgrade') statusText = t('ui.updateDowngradePending', { version: shown(state.diskVersion), running: shown(state.runningVersion) });
-        else if (state.lastError) statusText = t('ui.updateFailed');
-        else if (held) statusText = t('ui.updateHeld', { version: state.holdVersion });
-        else if (state.available && latest) statusText = t('ui.updateAvailableNow', { version: latest });
+        // 卡头摘要 = 状态结论一句话（一级卡头的说明位），正文只补事实与动作，不再重复结论。
+        var summary = t(latest ? 'ui.updateUpToDate' : 'ui.updateErrorCheckFailed');
+        if (state.disabled) summary = t('ui.updateDisabled');
+        else if (phase === 'install') summary = t('ui.updateInstalling', { version: shown(latest) });
+        else if (restartKind === 'update') summary = t('ui.updatePendingRestart', { version: shown(state.diskVersion) });
+        else if (restartKind === 'rollback') summary = t('ui.updateRolledBack', { version: shown(state.diskVersion) });
+        else if (restartKind === 'downgrade') summary = t('ui.updateDowngradePending', { version: shown(state.diskVersion), running: shown(state.runningVersion) });
+        else if (state.lastError) summary = t('ui.updateFailed');
+        else if (held) summary = t('ui.updateHeld', { version: state.holdVersion });
+        else if (state.available && latest) summary = t('ui.updateAvailableNow', { version: latest });
         var facts = [t('ui.versionRunning', { version: shown(state.runningVersion) }), t('ui.versionLatest', { version: shown(latest) })];
         if (state.lastCheckAt) {
           var minutes = Math.max(0, Math.floor((Date.now() - state.lastCheckAt) / 60000));
           var relative = minutes < 1 ? t('ui.timeJustNow') : minutes < 60 ? t('ui.timeMinutesAgo', { n: minutes }) : minutes < 1440 ? t('ui.timeHoursAgo', { n: Math.floor(minutes / 60) }) : t('ui.timeDaysAgo', { n: Math.floor(minutes / 1440) });
           facts.push(t('ui.versionLastCheck', { time: relative }));
         }
+        // 提醒以胶囊形式展示在相关行内（不做独立提醒区块）：待重启是可预期流程（中性胶囊），
+        // 更新失败才用危险胶囊。底色由文字色派生，tone 只换 color 一处。
+        var badges = [];
+        if (!state.disabled && state.lastError) badges.push(cgptPill({ key: 'pill-failed', tone: 'danger', children: t('ui.updateFailedBadge') }));
+        else if (!state.disabled && state.pendingRestart) badges.push(cgptPill({ key: 'pill-restart', tone: 'neutral', children: t('ui.updateRestartBadge') }));
         var buttons = state.disabled ? null : [cgptButton({ key: 'check', disabled: !!phase, onClick: check, children: t(phase === 'check' ? 'ui.updateChecking' : 'ui.updateCheckNow') })];
         if (buttons && state.available && latest && !held && !state.pendingRestart) buttons.push(cgptButton({ key: 'install', disabled: !!phase, onClick: function () { confirmInstall(latest, false); }, children: t('ui.updateInstallNow', { version: latest }) }));
-        content.push(row('state', statusText, state.disabled ? t('ui.updateDisabledWhy') : facts.join(' · '), buttons));
+        // 状态行说明 = 页面级事实（更新不动登录信息）+ 版本事实清单；上次动作失败时
+        // 错误详情跟在事实后面（原生 failure/reason 形态），不再单独占一行。
+        var stateDescNodes = [];
+        if (!state.disabled) stateDescNodes.push(h('div', { className: 'cgpt-rowDesc', key: 'intro' }, t('ui.versionAndUpdateDesc')));
+        stateDescNodes.push(h('div', { className: 'cgpt-rowDesc', key: 'facts' }, facts.join(' · ')));
+        if (state.disabled) stateDescNodes.push(h('div', { className: 'cgpt-rowDesc', key: 'why' }, t('ui.updateDisabledWhy')));
         if (!state.disabled && state.lastError) {
-          var errors = { 'incomplete-download': 'ui.updateErrorIncompleteDownload', 'integrity-mismatch': 'ui.updateErrorIntegrityMismatch', 'download-failed': 'ui.updateErrorDownloadFailed', 'too-large': 'ui.updateErrorTooLarge', 'payload-mismatch': 'ui.updateErrorPayloadMismatch', 'payload-unsafe': 'ui.updateErrorPayloadUnsafe', 'check-failed': 'ui.updateErrorCheckFailed' };
-          content.push(row('failure', null, t(errors[state.lastErrorKind] || 'ui.updateErrorUnknown')));
+          var failureKeys = { 'incomplete-download': 'ui.updateErrorIncompleteDownload', 'integrity-mismatch': 'ui.updateErrorIntegrityMismatch', 'download-failed': 'ui.updateErrorDownloadFailed', 'too-large': 'ui.updateErrorTooLarge', 'payload-mismatch': 'ui.updateErrorPayloadMismatch', 'payload-unsafe': 'ui.updateErrorPayloadUnsafe', 'check-failed': 'ui.updateErrorCheckFailed' };
+          stateDescNodes.push(h('div', { className: 'cgpt-alert cgpt-alert--error', role: 'alert', key: 'failure' }, h('span', { className: 'cgpt-alertText' }, t(failureKeys[state.lastErrorKind] || 'ui.updateErrorUnknown'))));
         }
+        content.push(row('state', t('ui.updateStateTitle'), null, badges.concat(buttons), stateDescNodes));
         if (!state.disabled) {
           // 原生分段控件是 tablist：每个 tab 的 aria-controls 指向 <id>-<value>-panel。
           // 说明本身充当 panel（放在行的文字列里，非选中项 hidden），页面上不留悬空引用。
@@ -477,9 +534,9 @@ module.exports = {
           ], modePanels));
           // 逃生门只在新版已装好但还没重启（restartKind === 'update'，此时退回最省事）或上次更新失败时出现。
           // 磁盘已经比运行中旧（'rollback' / 'downgrade'）时不再显示：回滚过的那次 pendingVersion 已清空，
-          // 外部降级则根本没有可回滚的对象，点了也没意义。
+          // 外部降级则根本没有可回滚的对象，点了也没意义。标题位放「为什么」，动作按钮在右。
           var rollback = restartKind === 'update' || !!state.lastError;
-          if (rollback || held) content.push(row('fallback', null, t(rollback ? 'ui.updateFallbackWhy' : 'ui.updateHoldWhy'), [
+          if (rollback || held) content.push(row('fallback', t(rollback ? 'ui.updateFallbackWhy' : 'ui.updateHoldWhy'), null, [
             rollback ? cgptButton({ key: 'rollback', disabled: !!phase, onClick: function () { action('rollbackUpdate', null, 'rollback'); }, children: t('ui.updateRollback') }) : null,
             held ? cgptButton({ key: 'force', disabled: !!phase, onClick: function () { confirmInstall(state.holdVersion, true); }, children: t('ui.updateAllowHeld', { version: state.holdVersion }) }) : null,
           ]));
@@ -501,12 +558,33 @@ module.exports = {
         onCancel: function () { setPendingInstall(null); },
         onConfirm: function () { var requested = pendingInstall; setPendingInstall(null); runInstall(requested.version, requested.force); },
       }) : null;
-      return hList('section', { className: 'cgpt-updates', 'aria-labelledby': 'cgpt-update-title' }, [
-        hList('div', { className: 'cgpt-sectionHead' }, [
-          h('h2', { id: 'cgpt-update-title', className: 'cgpt-sectionTitle' }, t('ui.versionAndUpdateTitle')),
-          h('p', { className: 'cgpt-sectionDesc' }, t('ui.versionAndUpdateDesc')),
+      // 更新卡 = 一张设置卡：可折叠一级卡头（标题 + 动态摘要）+ grid 动画折叠体。
+      // 收合态三件套：0fr（无高度）+ visibility（不可见且不可聚焦）+ aria-hidden（读屏隐藏）。
+      var headDesc = state ? summary : t(error ? 'ui.versionUnavailable' : 'ui.loading');
+      return hList('section', { className: 'cgpt-card', 'aria-labelledby': 'cgpt-update-title' }, [
+        hList('button', {
+          type: 'button',
+          className: 'cgpt-cardDisclosure',
+          'aria-expanded': open,
+          'aria-controls': 'cgpt-updates-content',
+          onClick: function () { setOpen(!open); },
+          key: 'head',
+        }, [
+          hList('span', { className: 'cgpt-cardDisclosureText' }, [
+            h('span', { id: 'cgpt-update-title', className: 'cgpt-cardTitle', role: 'heading', 'aria-level': 2, key: 'title' }, t('ui.versionAndUpdateTitle')),
+            h('span', { className: 'cgpt-cardDesc', key: 'desc' }, headDesc),
+          ]),
+          hList('span', { className: 'cgpt-cardAction', key: 'action' }, [
+            open ? t('ui.collapse') : t('ui.expand'),
+            cgptChevron({ expanded: open, key: 'chevron' }),
+          ]),
         ]),
-        hList('div', { className: 'cgpt-list' }, content),
+        h('div', {
+          id: 'cgpt-updates-content',
+          className: 'cgpt-collapse' + (open ? ' cgpt-collapse--expanded' : ''),
+          'aria-hidden': open ? undefined : 'true',
+          key: 'body',
+        }, h('div', { className: 'cgpt-collapseInner' }, h('div', { className: 'cgpt-body' }, content))),
         installDialog,
       ]);
     }
@@ -540,7 +618,7 @@ module.exports = {
 
       // 加载状态 + 轮询
       var load = React.useCallback(function () {
-        rpc('getCodexBridgeStatus').then(function (s) { setStatus(s); }).catch(function (e) { setStatus({ ok: false, error: { message: t('ui.loadFailed') } }); });
+        rpc('getCodexBridgeStatus').then(function (s) { setStatus(s); }).catch(function (e) { setStatus({ ok: false, loadFailed: true, error: { message: t('ui.loadFailed') } }); });
       }, []);
 
       React.useEffect(function () {
@@ -618,93 +696,120 @@ module.exports = {
       }
 
       // 页面内不再放标题：详情页顶部已经写了插件名与描述，复述一遍纯属重复。
-      // 页脚只讲页面级事实（隐私）；「绑定会打开登录页」「解绑会删本机登录信息」
-      // 各在状态行、确认弹窗里说一次，不重复。
+      // 页面 = 三张设置卡（账号与绑定 / 语言 / 版本与更新），卡间 8px；卡内分层只靠留白。
+      // 页面级事实（隐私）以安静小字跟随账号卡，不独立成区块。
       var note = h('p', { className: 'cgpt-note' }, t('ui.privacyNote'));
       var languageChoices = [{ value: 'auto', label: t('language.auto') }].concat(languageRuntime.options().map(function (language) {
         return { value: language.id, label: language.label };
       }));
-      var languageRow = h('div', { className: 'cgpt-row', key: 'language' },
-        h('div', { className: 'cgpt-rowText' },
-          h('div', { className: 'cgpt-rowTitle' }, t('language.title')),
-          h('div', { className: 'cgpt-rowDesc' }, t('language.description'))),
-        h('div', { className: 'cgpt-controls' },
-          cgptSelect({
-            id: 'cgpt-language',
-            value: languageRuntime.preference(),
-            label: t('language.title'),
-            options: languageChoices,
-            onChange: function (value) {
-              try { languageRuntime.setPreference(value); languageErrorState[1](null); }
-              catch { languageErrorState[1](t('language.saveFailed')); }
-            },
-          })));
-
-
-      if (!status) {
-        return h('div', { className: 'cgpt-page' }, languageRow, h('p', { className: 'cgpt-loading' }, t('ui.loading')));
-      }
-
-      var bound = status.bound;
-      var errorMsg = errorText(status.error);
+      // 卡 2「语言」：卡头讲清楚跟随策略，行内左「界面语言」、右下拉；保存失败红字
+      // 以行内说明展示，不做独立提醒区块。
+      var languageCard = hList('section', { className: 'cgpt-card', 'aria-labelledby': 'cgpt-language-title', key: 'language-card' }, [
+        hList('div', { className: 'cgpt-cardHead' }, [
+          h('span', { id: 'cgpt-language-title', className: 'cgpt-cardTitle', role: 'heading', 'aria-level': 2 }, t('language.title')),
+          h('div', { className: 'cgpt-cardDesc' }, t('language.description')),
+        ]),
+        hList('div', { className: 'cgpt-body' }, [
+          hList('div', { className: 'cgpt-rows' }, [
+            hList('div', { className: 'cgpt-row' }, [
+              hList('div', { className: 'cgpt-rowText' }, [
+                h('div', { className: 'cgpt-rowTitle' }, t('ui.interfaceLanguage')),
+                languageErrorState[0] ? h('div', { className: 'cgpt-alert cgpt-alert--error', role: 'alert' }, languageErrorState[0]) : null,
+              ]),
+              h('div', { className: 'cgpt-controls' },
+                cgptSelect({
+                  id: 'cgpt-language',
+                  value: languageRuntime.preference(),
+                  label: t('language.title'),
+                  options: languageChoices,
+                  onChange: function (value) {
+                    try { languageRuntime.setPreference(value); languageErrorState[1](null); }
+                    catch { languageErrorState[1](t('language.saveFailed')); }
+                  },
+                })),
+            ]),
+          ]),
+        ]),
+      ]);
 
       // 三态：未绑定（中性引导）/ 已连接（绿）/ 需要注意（红，绑定还在但状态异常）。
       // 未绑定绝不显示红字——那不是错误，是正常起点。
+      var bound = !!(status && status.bound);
+      var errorMsg = status ? errorText(status.error) : '';
       var needsAttention = bound && !!errorMsg;
       var bindLabel = authorizing ? t('ui.openingBrowser') : t('ui.bind');
 
       var accountDesc = null;
-      if (bound && status.account) {
+      if (status && bound && status.account) {
         var parts = [];
         if (status.account.email) parts.push(status.account.email);
         if (status.account.plan) parts.push(t('ui.accountPlan', { plan: status.account.plan }));
         accountDesc = parts.length > 0 ? parts.join(' · ') : t('ui.accountUnavailable');
       }
 
-      // 状态行只说状态本身：药丸已经写了「已连接 / 需要注意」，出错时红字提示紧跟其后，
-      // 都不再复述——没有新信息就不占一行。
+      // 卡 1「账号与绑定」：一级卡头的说明位放动态摘要（当前状态一句话 + 账号信息），
+      // 正文行只补细节与动作，绝不复述卡头已经说过的结论。
+      // 「读不到状态」是 RPC 失败的合成状态（loadFailed 标记），不是绑定生命周期的一环。
+      var bindingHeadDesc = !status
+        ? t('ui.loading')
+        : status.loadFailed
+          ? t('ui.loadFailed')
+          : !bound
+            ? t('ui.statusUnbound')
+            : [needsAttention ? t('ui.needsAttention') : t('ui.connected')].concat(accountDesc ? [accountDesc] : []).join(' · ');
+
+      // 状态胶囊已经写了「已连接 / 需要注意」，出错时红字说明跟在状态行说明位，都不再复述。
       var statusDesc = !bound
-        ? t('ui.statusUnbound')
+        ? null
         : needsAttention
           ? null
-          : (status.expiresAt
+          : (status && status.expiresAt
             ? t('ui.statusExpires', { time: fmtTime(status.expiresAt), left: fmtCountdown(status.expiresAt - Date.now()) })
             : null);
 
+      // 状态胶囊跟账号行走（状态属于账号）；使用状态行右侧只放动作按钮，同一屏不重复结论。
       var statusControls = !bound
         ? [cgptButton({ key: 'auth', onClick: handleAuthorize, disabled: authorizing, children: bindLabel })]
         : [
-          cgptStatus({
-            key: 'state',
-            tone: needsAttention ? 'danger' : 'success',
-            state: needsAttention ? 'error' : 'done',
-            children: needsAttention ? t('ui.needsAttention') : t('ui.connected'),
-          }),
           cgptButton({ key: 'reauth', onClick: handleAuthorize, disabled: authorizing, children: authorizing ? t('ui.openingBrowser') : t('ui.rebind') }),
           cgptButton({ key: 'unbind', className: 'cgpt-btn--danger', onClick: handleUnbind, children: t('ui.unbind') }),
         ];
 
-      var rows = [languageRow];
-      if (accountDesc) {
-        rows.push(hList('div', { className: 'cgpt-row', key: 'account' }, [
-          h('div', { className: 'cgpt-rowText' },
+      var bindingRows = [];
+      if (status && accountDesc) {
+        bindingRows.push(hList('div', { className: 'cgpt-row', key: 'account' }, [
+          hList('div', { className: 'cgpt-rowText' }, [
             h('div', { className: 'cgpt-rowTitle' }, t('ui.account')),
-            h('div', { className: 'cgpt-rowDesc' }, accountDesc)),
+            h('div', { className: 'cgpt-rowDesc' }, accountDesc),
+          ]),
+          h('div', { className: 'cgpt-controls' }, cgptPill({
+            key: 'account-pill',
+            tone: needsAttention ? 'danger' : 'success',
+            children: needsAttention ? t('ui.needsAttention') : t('ui.connected'),
+          })),
         ]));
       }
-      var statusText = [h('div', { className: 'cgpt-rowTitle' }, t('ui.status'))];
-      if (statusDesc) statusText.push(h('div', { className: 'cgpt-rowDesc' }, statusDesc));
-      rows.push(hList('div', { className: 'cgpt-row', key: 'status' }, [
-        hList('div', { className: 'cgpt-rowText' }, statusText),
+      // 红字只说清楚出了什么事：动手的按钮在同行右侧，同屏不再放第二个同样的按钮。
+      bindingRows.push(hList('div', { className: 'cgpt-row', key: 'status' }, [
+        hList('div', { className: 'cgpt-rowText' }, [
+          h('div', { className: 'cgpt-rowTitle' }, t('ui.status')),
+          needsAttention
+            ? h('div', { className: 'cgpt-alert cgpt-alert--error', role: 'alert' }, h('span', { className: 'cgpt-alertText' }, errorMsg))
+            : (statusDesc ? h('div', { className: 'cgpt-rowDesc' }, statusDesc) : null),
+        ]),
         hList('div', { className: 'cgpt-controls' }, statusControls),
       ]));
-
-      // 红字只说清楚出了什么事：动手的按钮在紧上面的状态行里，同屏不再放第二个同样的按钮。
-      var alerts = [];
-      if (needsAttention) {
-        alerts.push(h('div', { className: 'cgpt-alert cgpt-alert--error', key: 'err', role: 'alert' },
-          h('span', { className: 'cgpt-alertText' }, errorMsg)));
-      }
+      // 加载中时账号卡只渲染卡头（说明位 = 加载中），状态未知就不假装有正文。
+      var bindingCard = hList('section', { className: 'cgpt-card', 'aria-labelledby': 'cgpt-binding-title', key: 'binding-card' }, [
+        hList('div', { className: 'cgpt-cardHead' }, [
+          h('span', { id: 'cgpt-binding-title', className: 'cgpt-cardTitle', role: 'heading', 'aria-level': 2 }, t('ui.bindingCardTitle')),
+          h('div', { className: 'cgpt-cardDesc' }, bindingHeadDesc),
+        ]),
+        status ? hList('div', { className: 'cgpt-body' }, [
+          hList('div', { className: 'cgpt-rows' }, bindingRows),
+          note,
+        ]) : null,
+      ]);
 
       var unbindDialog = unbindOpen && NativeRiskConfirmation ? h(NativeRiskConfirmation, {
         open: true,
@@ -726,11 +831,9 @@ module.exports = {
       }) : null;
 
       return hList('div', { className: 'cgpt-page' }, [
-        hList('div', { className: 'cgpt-list' }, rows),
-        alerts.length > 0 ? hList('div', { className: 'cgpt-alerts' }, alerts) : null,
-        languageErrorState[0] ? h('p', { className: 'cgpt-alert cgpt-alert--error', role: 'alert' }, languageErrorState[0]) : null,
+        bindingCard,
+        languageCard,
         h(SubscriptionUpdates),
-        note,
         unbindDialog,
         toastNode,
       ]);
