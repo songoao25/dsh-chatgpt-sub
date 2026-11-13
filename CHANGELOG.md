@@ -2,6 +2,13 @@
 
 本项目的版本记录遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.8.0](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.7.0...v0.8.0) (2026-11-13)
+
+
+### Features
+
+* **settings:** migrate settings page to DSH 0.2.2 card design system ([#67](https://github.com/songoao25/dsh-chatgpt-sub/issues/67)) ([03cf856](https://github.com/songoao25/dsh-chatgpt-sub/commit/03cf8568a7192ca5c7205f46d02238a9696dec66))
+
 ## [0.7.0](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.6.5...v0.7.0) (2026-11-12)
 
 
