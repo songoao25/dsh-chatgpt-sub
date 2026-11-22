@@ -2,6 +2,13 @@
 
 本项目的版本记录遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.9.1](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.9.0...v0.9.1) (2026-11-22)
+
+
+### Bug Fixes
+
+* keep Codex quota windows available after the SIWC migration ([#71](https://github.com/songoao25/dsh-chatgpt-sub/issues/71)) ([8a2a9d3](https://github.com/songoao25/dsh-chatgpt-sub/commit/8a2a9d372692a04b378a78a8f28f5e7dc22ac137))
+
 ## [0.9.0](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.8.0...v0.9.0) (2026-11-22)
 
 
