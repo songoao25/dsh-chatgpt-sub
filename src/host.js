@@ -1,20 +1,26 @@
 // dsh-chatgpt-sub — host half（静态 bundle 形态）
-// 业务：ChatGPT 订阅官方 OAuth 绑定 + 令牌看护 + openai-codex 路由注册
-// 独立插件：绑定/令牌管理；dsh-bottom-info-bar 只读令牌显示额度
+// 业务：Sign in with ChatGPT（官方 SIWC）授权 + 令牌看护 + chatgpt-siwc 路由注册。
+// 独立插件：绑定/令牌/路由；dsh-bottom-info-bar 只读会话记录显示账号与额度状态。
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, sep } from 'node:path'
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
 import { LOCALES } from './locales.js'
 import { classifyRestart, createSelfUpdater } from './self-update.js'
 import { PACKAGE_DIR, UPDATE_REGISTRY_URL, compareSemver, packageVersion } from './version.js'
+import {
+  API_ORIGIN, APP_NAME_HINT, CALLBACK_PATH, DYNAMIC_CLIENT_ID,
+  accountFromIdToken, buildAuthorizeUrl, createPkcePair, exchangeAuthorizationCode,
+  hasPlanUsage, maskEmail, newState, parseCallbackParams, parseModelList,
+  refreshTokens, revokeRefreshToken, verifyIdToken,
+} from './siwc.js'
+import { startResponsesProxy } from './proxy.js'
 
 const UPDATE_CHECK_TIMEOUT_MS = 5000
 const UPDATE_LATEST_TTL_MS = 15 * 60 * 1000
 const UPDATE_LATEST_RETRY_MS = 60 * 1000
 
-// TTL 可被测试覆盖（生产不设置）：0 表示每次都重查。
 function updateLatestTtlMs() {
   const raw = Number(process.env.DSH_CHATGPT_UPDATE_TTL_MS)
   return Number.isFinite(raw) && raw >= 0 ? raw : UPDATE_LATEST_TTL_MS
@@ -22,42 +28,37 @@ function updateLatestTtlMs() {
 
 const updateLatestCache = { value: null, expiresAt: 0, pending: null }
 
-// 查一次 npm。任何失败都返回 null —— 提醒宁可不显示，也不误报。
 function fetchLatestVersion() {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), UPDATE_CHECK_TIMEOUT_MS)
+  const timer = setTimeout(function () { controller.abort() }, UPDATE_CHECK_TIMEOUT_MS)
   return fetch(UPDATE_REGISTRY_URL, {
     headers: { accept: 'application/json' },
     signal: controller.signal,
-  }).then((response) => (response.ok ? response.json() : null))
-    .then((body) => (body && typeof body.version === 'string' ? body.version : null))
-    .catch(() => null)
-    .finally(() => clearTimeout(timer))
+  }).then(function (response) { return response.ok ? response.json() : null })
+    .then(function (body) { return body && typeof body.version === 'string' ? body.version : null })
+    .catch(function () { return null })
+    .finally(function () { clearTimeout(timer) })
 }
 
-// 读最新版本：命中缓存直接返回；过期则重查（并发调用共用同一次请求）。
-// 查失败时保留上一次的已知值（网络抖动不该让提醒闪烁），并把下次重试提前到 1 分钟。
 function latestVersion() {
   const now = Date.now()
   if (now < updateLatestCache.expiresAt) return Promise.resolve(updateLatestCache.value)
   if (updateLatestCache.pending) return updateLatestCache.pending
-  const pending = fetchLatestVersion().then((value) => {
+  const pending = fetchLatestVersion().then(function (value) {
     if (value !== null) updateLatestCache.value = value
     updateLatestCache.expiresAt = Date.now() + (value !== null ? updateLatestTtlMs() : UPDATE_LATEST_RETRY_MS)
     return updateLatestCache.value
-  }).finally(() => { updateLatestCache.pending = null })
+  }).finally(function () { updateLatestCache.pending = null })
   updateLatestCache.pending = pending
   return pending
 }
 
 function dshHomeDir() { return process.env.DSH_HOME || join(homedir(), '.dsh') }
+
 function isLoadedAsProfilePlugin() {
   try {
     const real = realpathSync(PACKAGE_DIR)
     const profilesRoot = realpathSync(join(dshHomeDir(), 'profiles')) + sep
-    // Windows 与 macOS 默认文件系统不区分大小写：盘符或目录大小写不一致
-    // （如 C:\ 与 c:\）时逐字比较会误判为「非 profile 安装」，自更新被静默关闭。
-    // 平台分支只在这一处做一次，调用方只读布尔结果。
     if (process.platform === 'win32' || process.platform === 'darwin') {
       return real.toLowerCase().startsWith(profilesRoot.toLowerCase())
     }
@@ -65,39 +66,35 @@ function isLoadedAsProfilePlugin() {
   } catch { return false }
 }
 
-
 const DATA_DIR = process.env.DSH_CHATGPT_DATA_DIR || join(homedir(), '.dsh', 'dsh-chatgpt-sub')
-// Update state follows this DSH installation; existing binding files keep their established location.
 const UPDATE_DATA_DIR = process.env.DSH_CHATGPT_DATA_DIR || join(dshHomeDir(), 'dsh-chatgpt-sub')
-// 一次性迁移：0.3.x 时包名是 dsh-chatgpt-subscription，绑定标记目录随包名升级。
-// 默认路径下旧目录存在、新目录不存在时整体搬移（绑定标记跟着走，用户不用重新绑定）；
-// 显式指定 DSH_CHATGPT_DATA_DIR 的是开发/测试隔离场景，一律不动。
-// 搬移失败就落在新目录从头开始：auth.json 里的令牌不受影响，代价只是重新绑定一次。
 const LEGACY_DATA_DIR = join(homedir(), '.dsh', 'dsh-chatgpt-subscription')
 if (!process.env.DSH_CHATGPT_DATA_DIR && existsSync(LEGACY_DATA_DIR) && !existsSync(DATA_DIR)) {
-  try { renameSync(LEGACY_DATA_DIR, DATA_DIR); } catch { }
-}
-const CODEX_BIND_FILE = process.env.DSH_CHATGPT_BIND_FILE || join(DATA_DIR, 'codex-bind.json')
-
-const CODEX_OAUTH_CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann' // OpenAI OAuth 公开 client_id（token 续期用，非密钥）
-const CODEX_DEFAULT_MODEL = process.env.DSH_CHATGPT_DEFAULT_MODEL || 'gpt-5.6-luna'
-const CODEX_AUTH_FILE = process.env.DSH_CHATGPT_AUTH || join(homedir(), '.codex', 'auth.json')
-const OAUTH_CALLBACK_TIMEOUT_MS = Number(process.env.DSH_CHATGPT_OAUTH_TIMEOUT_MS) > 0 ? Number(process.env.DSH_CHATGPT_OAUTH_TIMEOUT_MS) : 5 * 60 * 1000
-const OAUTH_CALLBACK_PATH = '/auth/callback'
-
-// 纯路由判定便于回归测试：只有已绑定且令牌状态健康、当前默认选择为 ChatGPT，
-// 才能进入 ChatGPT 模式；其他情况都回到 DeepSeek 模式。
-function routingModeFor(bound, bridgeHealthy, provider) {
-  return bound === true && bridgeHealthy === true && provider === 'openai-codex' ? 'chatgpt' : 'deepseek'
+  try { renameSync(LEGACY_DATA_DIR, DATA_DIR) } catch (err) {}
 }
 
-// DSH 0.1.7 起 settings 服务换成 SettingsForms：get(ns) 被整块移除，只剩
-// describe() / update() / replace() / mutate()，描述项形如
-//   [{ ns: 'llm-pi-ai', value: { providers: { … } }, revision: 3, … }]
-// （value 是 schema 默认 → 组合基线 → 用户层解析后的当前值，且敏感字段已脱敏）。
-// 读某一节统一走这里：新宿主优先 describe()，旧宿主退回 get(ns)，都读不到返回 undefined。
-// 写回一律用 mutate()——新旧宿主都支持，不需要分支。
-// 纯函数，便于回归测试（tests/test-codex-host.js 按名提取后整体求值）。
+const BIND_FILE = process.env.DSH_CHATGPT_BIND_FILE || join(DATA_DIR, 'siwc-bind.json')
+const OLD_BIND_FILE = process.env.DSH_CHATGPT_OLD_BIND_FILE || join(DATA_DIR, 'codex-bind.json')
+const HOST_ID_FILE = join(DATA_DIR, 'host-id')
+const SESSION_FILE = join(DATA_DIR, 'siwc-session.json')
+
+const PROVIDER_ID = 'chatgpt-siwc'
+const PROVIDER_DISPLAY = 'ChatGPT'
+const TOKEN_REF = 'CHATGPT_SIWC_TOKEN'
+const SESSION_KEY = 'chatgpt-sub/session'
+const OLD_TOKEN_REF = 'OPENAI_CODEX_API_KEY'
+const OLD_PROVIDER_ID = 'openai-codex'
+
+const OAUTH_CALLBACK_TIMEOUT_MS = Number(process.env.DSH_CHATGPT_OAUTH_TIMEOUT_MS) > 0
+  ? Number(process.env.DSH_CHATGPT_OAUTH_TIMEOUT_MS)
+  : 5 * 60 * 1000
+const SYNC_INTERVAL_MS = 10 * 60 * 1000
+const REFRESH_AHEAD_MS = 10 * 60 * 1000
+const DEFAULT_CONTEXT_WINDOW = 128000
+const DEFAULT_MAX_TOKENS = 128000
+
+const MSG_ROUTE_CONFLICT = 'DSH 里已经有一条同名的 ChatGPT 通道，那是你自己配置的，本插件不会改动它。\n如果想交给本插件管理，请先删除那一条，再点「重新绑定」。'
+
 function readSettingsSection(settings, ns) {
   if (!settings || typeof settings !== 'object') return undefined
   if (typeof settings.describe === 'function') {
@@ -108,7 +105,7 @@ function readSettingsSection(settings, ns) {
           if (entry && entry.ns === ns) return entry.value
         }
       }
-    } catch (err) { /* describe 不可用时落到旧宿主路径 */ }
+    } catch (err) {}
   }
   if (typeof settings.get === 'function') {
     try { return settings.get(ns) } catch (err) { return undefined }
@@ -116,32 +113,14 @@ function readSettingsSection(settings, ns) {
   return undefined
 }
 
-// 宿主是否具备「能读 + 能写」的 settings 能力：0.1.6 要 get+mutate，0.1.7 要 describe+mutate。
 function settingsServiceReady(settings) {
   if (!settings || typeof settings.mutate !== 'function') return false
   return typeof settings.describe === 'function' || typeof settings.get === 'function'
 }
 
-const CODEX_JWT_ACCOUNT_CLAIM = 'https://api.openai.com/auth' // access_token JWT payload 里账号声明的命名空间键（wham 账号提取用）
-const OAUTH_SCOPE = 'openid profile email offline_access' // 官方授权 scope（与 pi-ai/Codex CLI 一致；offline_access 换 refresh_token）
-
-// ---------- 用户可见文案（集中收口，避免同一语义在同步与授权两条路径上各写一份而漂移） ----------
-// 写作原则：不出现术语（令牌/凭据/注入/路由/环境变量/文件路径），每条都要有「发生了什么 + 你现在该做什么」。
-const MSG_CREDENTIAL_CONFLICT = 'DSH 里存着另一个 OpenAI 账号的登录信息，不是本插件刚绑定的这个，所以本插件不会动它。\n如果你确实想用刚绑定的账号，请先到 DSH 的凭据设置里删掉那一条，再回来点「重新绑定」。'
-const MSG_ROUTE_CONFLICT = 'DSH 里已经有一条同名的 ChatGPT 通道，那是你自己配置的，本插件不会改动它。\n如果想交给本插件管理，请先删除那一条，再点「重新绑定」。'
-
-// ---------- 绑定标记（严格官方模式唯一事实） ----------
-// 语义：只有本插件 OAuth 绑定成功写入的标记存在且 bound=true 时，才注入令牌到 DSH 凭据。
-// codex CLI 自己的令牌（无标记）绝不被自动使用——彻底废弃旧"读登录态"桥接来源。
-// 文件路径可由 DSH_CHATGPT_BIND_FILE 覆盖（测试隔离）。
-function readBindFlag(filePath) {
-  if (typeof filePath !== 'string' || filePath.length === 0) filePath = CODEX_BIND_FILE
+function readBindFlag() {
   let raw = null
-  try {
-    raw = readFileSync(filePath, 'utf8')
-  } catch (err) {
-    return { ok: false, bound: false }
-  }
+  try { raw = readFileSync(BIND_FILE, 'utf8') } catch (err) { return { ok: false, bound: false } }
   try {
     const data = JSON.parse(raw)
     if (!data || typeof data !== 'object' || Array.isArray(data)) return { ok: false, bound: false }
@@ -153,468 +132,126 @@ function readBindFlag(filePath) {
       defaultModelManaged: data.defaultModelManaged === true,
       previousDefaultModel: data.previousDefaultModel && typeof data.previousDefaultModel === 'object' ? data.previousDefaultModel : null,
       credentialManaged: data.credentialManaged === true,
+      clientId: typeof data.clientId === 'string' && data.clientId.length > 0 ? data.clientId : null,
+      hostId: typeof data.hostId === 'string' && data.hostId.length > 0 ? data.hostId : null,
+      email: typeof data.email === 'string' && data.email.length > 0 ? data.email : null,
+      plan: typeof data.plan === 'string' && data.plan.length > 0 ? data.plan : null,
+      models: Array.isArray(data.models) ? data.models.filter(function (m) { return m && typeof m.id === 'string' }) : [],
     }
   } catch (err) {
     return { ok: false, bound: false }
   }
 }
 
-// 原子写绑定标记（tmp+rename 防写一半；0600；目录自动创建）；data 可带 plan 等扩展字段
-function writeBindFlag(filePath, data) {
-  const payload = Object.assign({ bound: true, boundAt: new Date().toISOString() }, data || {})
-  const tmp = filePath + '.tmp'
-  mkdirSync(dirname(filePath), { recursive: true, mode: 0o700 })
+function writeBindFlag(data) {
+  const payload = Object.assign({ version: 2, bound: true, boundAt: new Date().toISOString() }, data || {})
+  const tmp = BIND_FILE + '.tmp'
+  mkdirSync(dirname(BIND_FILE), { recursive: true, mode: 0o700 })
   writeFileSync(tmp, JSON.stringify(payload, null, 2) + '\n', { mode: 0o600 })
   chmodSync(tmp, 0o600)
-  renameSync(tmp, filePath)
-  chmodSync(filePath, 0o600)
+  renameSync(tmp, BIND_FILE)
+  chmodSync(BIND_FILE, 0o600)
   return payload
 }
 
-// 清绑定标记（删除文件）；文件已缺失视为已清，不抛错
-function clearBindFlag(filePath) {
-  if (typeof filePath !== 'string' || filePath.length === 0) filePath = CODEX_BIND_FILE
+
+function ensureHostId() {
   try {
-    unlinkSync(filePath)
-  } catch (err) {
-    if (!err || err.code !== 'ENOENT') throw err
-  }
-}
-
-const CODEX_TOKEN_FALLBACK_LIFETIME_SEC = 864000
-// 过期前提前量（秒）：JWT 剩余寿命 < 45 分钟才续期（10 天寿命下极少触发，避免窗口内过期）
-const CODEX_REFRESH_AHEAD_SEC = 45 * 60
-// 桥接同步周期（毫秒）：启动即跑一次 + 每 30 分钟维护（与订阅额度刷新相互独立）
-const CODEX_SYNC_INTERVAL_MS = 30 * 60 * 1000
-
-// base64url → UTF-8 字符串（JWT payload 段解码：-/_ 换回 +// 后按标准 base64 解，容忍缺 padding）
-function decodeBase64Url(input) {
-  if (typeof input !== 'string' || input.length === 0) return null
+    const existing = readFileSync(HOST_ID_FILE, 'utf8').trim()
+    if (/^urn:uuid:[0-9a-f-]{36}$/i.test(existing)) return existing
+  } catch (err) {}
+  const hostId = 'urn:uuid:' + randomUUID()
   try {
-    return Buffer.from(input.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
-  } catch (err) {
-    return null
-  }
+    mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 })
+    const tmp = HOST_ID_FILE + '.tmp'
+    writeFileSync(tmp, hostId + '\n', { mode: 0o600 })
+    chmodSync(tmp, 0o600)
+    renameSync(tmp, HOST_ID_FILE)
+    chmodSync(HOST_ID_FILE, 0o600)
+  } catch (err) {}
+  return hostId
 }
 
-// JWT payload 通用解码：标准 JWT 取第 2 段；非 JWT/损坏/非对象 → null。
-// 只做只读解码，令牌值始终留在内存，不打印、不落盘、不进日志。
-function decodeJwtPayload(token) {
-  if (typeof token !== 'string' || token.length === 0) return null
-  const parts = token.split('.')
-  if (parts.length !== 3) return null
-  const raw = decodeBase64Url(parts[1])
-  if (raw == null) return null
-  try {
-    const payload = JSON.parse(raw)
-    return payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : null
-  } catch (err) {
-    return null
-  }
-}
-
-// JWT exp 解码（秒）：标准 JWT 取第 2 段 payload 的 exp；非 JWT/损坏/缺 exp → null（调用方走 last_refresh 兜底）
-function decodeJwtExp(token) {
-  const payload = decodeJwtPayload(token)
-  const exp = payload && payload.exp
-  return typeof exp === 'number' && isFinite(exp) && exp > 0 ? exp : null
-}
-
-// 归一化令牌过期时刻（秒）：JWT exp 优先；无效 → last_refresh（毫秒）+ 10 天兜底；两者皆无 → null
-function codexExpiresAt(expSeconds, lastRefreshMs) {
-  if (typeof expSeconds === 'number' && isFinite(expSeconds) && expSeconds > 0) return expSeconds
-  if (typeof lastRefreshMs === 'number' && isFinite(lastRefreshMs) && lastRefreshMs > 0) {
-    return Math.floor(lastRefreshMs / 1000) + CODEX_TOKEN_FALLBACK_LIFETIME_SEC
-  }
-  return null
-}
-
-// 续期决策（秒精度）：剩余 < 45 分钟或无法判定过期 → true（保守续期，宁多刷不放过期）
-function codexNeedsRefresh(expiresAtSeconds, nowSeconds) {
-  if (expiresAtSeconds == null) return true
-  return expiresAtSeconds - nowSeconds < CODEX_REFRESH_AHEAD_SEC
-}
-
-// 读 auth.json：{ ok:true, auth } 或 { ok:false, reason:'missing'|'corrupt' }（缺失/损坏一律不抛异常）
-function readCodexAuthFile(filePath) {
-  let raw = null
-  try {
-    raw = readFileSync(filePath, 'utf8')
-  } catch (err) {
-    return { ok: false, reason: err && err.code === 'ENOENT' ? 'missing' : 'corrupt' }
-  }
-  let auth = null
-  try {
-    auth = JSON.parse(raw)
-  } catch (err) {
-    return { ok: false, reason: 'corrupt' }
-  }
-  if (!auth || typeof auth !== 'object' || Array.isArray(auth)) return { ok: false, reason: 'corrupt' }
-  return { ok: true, auth: auth }
-}
-
-// 原子写回 auth.json：只更新 access_token/refresh_token/last_refresh，保留完整结构（auth_mode/OPENAI_API_KEY/
-// tokens 内 account_id、id_token 等一律不动——绝不弄坏 Codex CLI 登录态）；tmp+rename 防写一半；0600 权限
-function writeAuthJson(filePath, currentAuth, accessToken, refreshToken, lastRefreshIso) {
-  const updated = {
-    ...currentAuth,
-    tokens: { ...(currentAuth.tokens && typeof currentAuth.tokens === 'object' ? currentAuth.tokens : {}), access_token: accessToken, refresh_token: refreshToken },
-    last_refresh: lastRefreshIso,
-  }
-  const tmp = filePath + '.tmp'
-  mkdirSync(dirname(filePath), { recursive: true, mode: 0o700 })
-  writeFileSync(tmp, JSON.stringify(updated, null, 2) + '\n', { mode: 0o600 })
-  chmodSync(tmp, 0o600)
-  renameSync(tmp, filePath)
-  chmodSync(filePath, 0o600)
-  return updated
-}
-
-// 用 refresh_token 向官方 OAuth 端点换新令牌对；凭据仅经 HTTPS body 传递（不进子进程，无 shell 注入面）
-// 响应缺 access_token（空串/null）→ 返回 null（调用方不得写回）；refresh_token 未轮换 → 返回 null 字段表示沿用旧值
-async function refreshCodexTokenPair(refreshToken) {
-  try {
-    const res = await fetch('https://auth.openai.com/oauth/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'refresh_token',
-        client_id: CODEX_OAUTH_CLIENT_ID,
-        refresh_token: refreshToken,
-      }).toString(),
-      signal: AbortSignal.timeout(15000),
-    })
-    if (!res.ok) return null
-    const body = await res.json()
-    if (!body || typeof body.access_token !== 'string' || body.access_token.length === 0) return null
-    return {
-      access_token: body.access_token,
-      refresh_token: typeof body.refresh_token === 'string' && body.refresh_token.length > 0 ? body.refresh_token : null,
-    }
-  } catch (err) {
-    return null // 网络/超时等异常 → 调用方按"续期失败"降级（保留旧凭据）
-  }
-}
-
-// ---------- ChatGPT 订阅官方 OAuth 绑定（v1.2.0）纯逻辑：PKCE / 授权 URL / 回调解析 / 令牌交换 / 写回 ----------
-// 安全铁律：verifier/state/令牌仅内存（verifier 用完即弃）；不打印、不进日志、不进仓库；唯一落盘 =
-// ~/.codex/auth.json（0600）与 DSH 凭据库（0600）；回调 server 仅 127.0.0.1 + state 校验防 CSRF。
-
-// OAuth 回调端口：生产必须为 1455（redirect_uri 与 OpenAI 注册值固定一致）；DSH_CHATGPT_OAUTH_PORT 仅测试隔离用
-function oauthCallbackPort() {
-  const v = Number(process.env.DSH_CHATGPT_OAUTH_PORT)
-  return Number.isInteger(v) && v > 0 && v < 65536 ? v : 1455
-}
-
-// PKCE 对：verifier = 32 字节 base64url；challenge = 对 verifier 做 sha256 哈希后再 base64url 编码（S256）
-function createPkcePair() {
-  const verifier = randomBytes(32).toString('base64url')
-  const challenge = createHash('sha256').update(verifier).digest('base64url')
-  return { verifier: verifier, challenge: challenge }
-}
-
-// 构造授权跳转 URL（auth.openai.com/oauth/authorize；参数与 pi-ai/Codex CLI 一致；不含任何机密）
-function buildAuthorizeUrl(state, codeChallenge) {
-  const url = new URL('https://auth.openai.com/oauth/authorize')
-  url.searchParams.set('client_id', CODEX_OAUTH_CLIENT_ID)
-  url.searchParams.set('response_type', 'code')
-  url.searchParams.set('redirect_uri', 'http://localhost:' + oauthCallbackPort() + OAUTH_CALLBACK_PATH)
-  url.searchParams.set('code_challenge', codeChallenge)
-  url.searchParams.set('code_challenge_method', 'S256')
-  url.searchParams.set('state', state)
-  url.searchParams.set('scope', OAUTH_SCOPE)
-  return url.toString()
-}
-
-// 解析回调（完整 URL 的 query/hash、查询串、手贴 'code#state'、裸 code）；缺参返回 null 字段
-function parseCallbackUrl(url) {
-  if (typeof url !== 'string' || url.length === 0) return { code: null, state: null }
-  const raw = url.trim()
-  // ① 完整 URL：query 参数优先，hash 参数兜底（兼容 OAuth hash 响应）
-  try {
-    const u = new URL(raw)
-    let code = u.searchParams.get('code')
-    let state = u.searchParams.get('state')
-    if (u.hash && u.hash.length > 1) {
-      const hp = new URLSearchParams(u.hash.slice(1))
-      if (code == null) code = hp.get('code')
-      if (state == null) state = hp.get('state')
-    }
-    return { code: code, state: state }
-  } catch (err) { /* 非完整 URL → ②/③/④ */ }
-  // ② 手贴格式 'code#state'
-  if (raw.indexOf('#') >= 0 && raw.indexOf('://') < 0) {
-    const parts = raw.split('#')
-    const first = parts[0]
-    if (first && first.indexOf('=') < 0) {
-      const rest = parts.slice(1).join('#')
-      const sp = new URLSearchParams(rest)
-      return { code: first, state: sp.get('state') != null ? sp.get('state') : rest }
-    }
-  }
-  // ③ 查询串 'code=..&state=..'
-  const q = raw.indexOf('?') >= 0 ? raw.slice(raw.indexOf('?') + 1) : raw
-  const sp2 = new URLSearchParams(q)
-  if (sp2.has('code') || sp2.has('state')) return { code: sp2.get('code'), state: sp2.get('state') }
-  // ④ 裸 code（手动粘贴单值）
-  if (raw.length > 0 && raw.indexOf('=') < 0 && raw.indexOf('#') < 0) return { code: raw, state: null }
-  return { code: null, state: null }
-}
-
-// 从 access_token JWT payload 提取 chatgpt_account_id（wham 额度接口所需）；失败 → null
-function codexAccountIdFromJwt(token) {
-  const payload = decodeJwtPayload(token)
-  const auth = payload && payload[CODEX_JWT_ACCOUNT_CLAIM]
-  const id = auth && auth.chatgpt_account_id
-  return typeof id === 'string' && id.length > 0 ? id : null
-}
-
-// 令牌是否已过期（秒精度）：exp 可判定且已过 → true；无法判定（非 JWT / 缺 exp）→ false（不做无根据的否定）
-function codexIsTokenExpired(token, nowSeconds) {
-  const exp = decodeJwtExp(token)
-  if (typeof exp !== 'number') return false
-  return exp <= nowSeconds
-}
-
-// 判定 DSH 凭据槽里那份 OpenAI 登录信息能否被本插件接管。
-//
-// 【为什么需要这个函数】v0.1.0 写入的绑定标记只有 { bound, boundAt }，没有「凭据归本插件所有」这一栏。
-// 旧判定在这种情况下退化成「槽位非空即视为他人所有」，而槽里躺的恰恰是插件自己早期注入的令牌，
-// 于是插件把自己永久锁在门外（2026-08-20 起常驻「检测到用户已有…插件不会覆盖」红字，连重新授权都救不回来）。
-// 根治办法不是再加一条特例，而是让归属判定建立在**可自证的证据**上：逐字节同值、同一 ChatGPT 账号，
-// 都属于"这份凭据只可能来自同一来源"，无需依赖任何历史记账。
-//
-// 判据按强度递减，命中即允许接管：
-//   owned         进程内已确认是本插件写入的
-//   managed       绑定标记记录了「凭据归本插件所有」
-//   empty         槽位为空 → 首次注入
-//   same-value    槽内令牌与本插件当前令牌逐字节相同 → 同源
-//   same-account  两者属于同一 ChatGPT 账号 → 同一来源的新旧版本
-//   expired-stale 插件处于已绑定状态、槽内令牌已过期而新令牌有效 → 过期凭据对任何人都没有价值
-//   other         其余一律拒绝：真正的他人凭据，绝不覆盖
-// 返回 { claim, reason }；reason 仅供测试与排障，不进入任何用户可见文案。
-function classifyCodexCredential(existingValue, candidateToken, options) {
-  const opts = options && typeof options === 'object' ? options : {}
-  if (opts.ownedInProcess === true) return { claim: true, reason: 'owned' }
-  if (opts.managed === true) return { claim: true, reason: 'managed' }
-  const existing = typeof existingValue === 'string' ? existingValue : ''
-  if (existing.length === 0) return { claim: true, reason: 'empty' }
-  const candidate = typeof candidateToken === 'string' ? candidateToken : ''
-  if (candidate.length === 0) return { claim: false, reason: 'no-candidate' }
-  if (existing === candidate) return { claim: true, reason: 'same-value' }
-  const existingAccount = codexAccountIdFromJwt(existing)
-  const candidateAccount = codexAccountIdFromJwt(candidate)
-  if (existingAccount && candidateAccount && existingAccount === candidateAccount) return { claim: true, reason: 'same-account' }
-  const nowSec = typeof opts.nowSeconds === 'number' ? opts.nowSeconds : Math.floor(Date.now() / 1000)
-  if (opts.boundFlag === true && codexIsTokenExpired(existing, nowSec) && !codexIsTokenExpired(candidate, nowSec)) {
-    return { claim: true, reason: 'expired-stale' }
-  }
-  return { claim: false, reason: 'other' }
-}
-
-// 账本迁移：把「这份凭据归本插件所有」补记进绑定标记，并保留既有字段与首次绑定时间。
-// 迁移一次即永久自证，之后连同源判定都不再需要 —— 这是防止同类旧标记再次把插件锁死的关键一环。
-function withCredentialManaged(flag) {
-  const base = flag && typeof flag === 'object' ? flag : {}
+function parseSession(record) {
+  const payload = record && record.kind === 'grant' ? record.payload : undefined
+  if (!payload || typeof payload !== 'object' || payload.version !== 1) return null
+  if (typeof payload.clientId !== 'string' || typeof payload.accessToken !== 'string') return null
+  if (typeof payload.expiresAt !== 'number' || !isFinite(payload.expiresAt)) return null
   return {
-    routeOwned: base.routeOwned === true,
-    defaultModelManaged: base.defaultModelManaged === true,
-    previousDefaultModel: base.previousDefaultModel && typeof base.previousDefaultModel === 'object' ? base.previousDefaultModel : null,
-    credentialManaged: true,
-    boundAt: typeof base.boundAt === 'string' && base.boundAt.length > 0 ? base.boundAt : new Date().toISOString(),
+    version: 1,
+    clientId: payload.clientId,
+    hostId: typeof payload.hostId === 'string' ? payload.hostId : null,
+    subject: typeof payload.subject === 'string' ? payload.subject : null,
+    email: typeof payload.email === 'string' ? payload.email : null,
+    plan: typeof payload.plan === 'string' ? payload.plan : null,
+    idToken: typeof payload.idToken === 'string' ? payload.idToken : null,
+    accessToken: payload.accessToken,
+    refreshToken: typeof payload.refreshToken === 'string' && payload.refreshToken.length > 0 ? payload.refreshToken : null,
+    expiresAt: payload.expiresAt,
+    earliestRefreshAt: typeof payload.earliestRefreshAt === 'number' ? payload.earliestRefreshAt : null,
+    scopes: Array.isArray(payload.scopes) ? payload.scopes.filter(function (s) { return typeof s === 'string' }) : [],
+    savedAt: typeof payload.savedAt === 'string' ? payload.savedAt : null,
   }
 }
 
-// 邮箱脱敏（页面展示用）：本地部分最多留前 2 位，域名保留；无法识别 → null。
-// 脱敏一律在 host 侧完成 —— 完整邮箱绝不进入前端、日志或错误信息。
-function maskEmail(email) {
-  if (typeof email !== 'string' || email.length === 0) return null
-  const at = email.indexOf('@')
-  if (at <= 0 || at === email.length - 1) return null
-  const local = email.slice(0, at)
-  const head = local.slice(0, local.length > 2 ? 2 : 1)
-  return head + '•••' + email.slice(at)
+function sessionToRecord(session) {
+  return { kind: 'grant', payload: JSON.parse(JSON.stringify(session)) }
 }
 
-// 账号摘要（页面展示用）：id_token 优先、access_token 兜底；解不出 → null 字段（页面显示「暂未读到」）。
-function codexAccountSummary(auth) {
-  const tokens = auth && typeof auth === 'object' && auth.tokens && typeof auth.tokens === 'object' ? auth.tokens : {}
-  const idClaims = decodeJwtPayload(typeof tokens.id_token === 'string' ? tokens.id_token : '')
-  const accessClaims = decodeJwtPayload(typeof tokens.access_token === 'string' ? tokens.access_token : '')
-  const claims = idClaims || accessClaims || {}
-  const authClaim = claims[CODEX_JWT_ACCOUNT_CLAIM] && typeof claims[CODEX_JWT_ACCOUNT_CLAIM] === 'object' ? claims[CODEX_JWT_ACCOUNT_CLAIM] : {}
-  const plan = typeof authClaim.chatgpt_plan_type === 'string' && authClaim.chatgpt_plan_type.length > 0 ? authClaim.chatgpt_plan_type : null
-  return { email: maskEmail(claims.email), plan: plan }
+function readSessionFile() {
+  try { return parseSession({ kind: 'grant', payload: JSON.parse(readFileSync(SESSION_FILE, 'utf8')) }) } catch (err) { return null }
 }
 
-// 套餐英文标识 → 页面展示名；未知档位原样返回（不猜、不编）
+function writeSessionFile(session) {
+  mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 })
+  const tmp = SESSION_FILE + '.tmp'
+  writeFileSync(tmp, JSON.stringify(session, null, 2) + '\n', { mode: 0o600 })
+  chmodSync(tmp, 0o600)
+  renameSync(tmp, SESSION_FILE)
+  chmodSync(SESSION_FILE, 0o600)
+}
+
+function deleteSessionFile() {
+  try { unlinkSync(SESSION_FILE) } catch (err) { if (!err || err.code !== 'ENOENT') throw err }
+}
+
 function planDisplayName(plan) {
   if (typeof plan !== 'string' || plan.length === 0) return null
   const map = { free: 'Free', plus: 'Plus', pro: 'Pro', team: 'Team', business: 'Business', enterprise: 'Enterprise', edu: 'Edu' }
   return map[plan.toLowerCase()] || plan
 }
 
-// 构造 OAuth 绑定后的 auth.json 对象：保留既有结构（codex CLI/OpenCode 兼容），仅替换令牌字段 + last_refresh；
-// account_id 优先从新 access_token 提取，提取失败保留旧值；全新文件给出标准骨架 {auth_mode:'oauth', ...}
-function buildOAuthAuthObject(existing, exchange, nowIso) {
-  const base = existing && typeof existing === 'object' && !Array.isArray(existing) ? existing : {}
-  const baseTokens = base.tokens && typeof base.tokens === 'object' && !Array.isArray(base.tokens) ? base.tokens : {}
-  const tokens = Object.assign({}, baseTokens)
-  tokens.access_token = exchange.access_token
-  if (typeof exchange.refresh_token === 'string' && exchange.refresh_token.length > 0) tokens.refresh_token = exchange.refresh_token
-  if (typeof exchange.id_token === 'string' && exchange.id_token.length > 0) tokens.id_token = exchange.id_token
-  const accountId = codexAccountIdFromJwt(exchange.access_token)
-  if (accountId) tokens.account_id = accountId
-  return {
-    auth_mode: 'oauth',
-    OPENAI_API_KEY: typeof base.OPENAI_API_KEY === 'string' && base.OPENAI_API_KEY.length > 0 ? base.OPENAI_API_KEY : null,
-    tokens: tokens,
-    last_refresh: nowIso,
-  }
+function needsRefresh(session, now) {
+  const at = typeof now === 'number' ? now : Date.now()
+  if (session.expiresAt - REFRESH_AHEAD_MS > at) return false
+  if (session.expiresAt <= at) return true
+  return session.earliestRefreshAt == null || session.earliestRefreshAt <= at
 }
 
-// 解绑：仅清令牌字段并原子写回（保留 auth_mode/OPENAI_API_KEY/account_id 等结构——auth.json 是 codex CLI
-// 等工具共用的标准位置，保留骨架更接近"已登出"语义，也便于重新绑定与 CLI 兼容）；tmp+rename 防写一半；0600
-function clearCodexAuthTokens(filePath, currentAuth) {
-  const base = currentAuth && typeof currentAuth === 'object' && !Array.isArray(currentAuth) ? currentAuth : {}
-  const tokens = Object.assign({}, base.tokens && typeof base.tokens === 'object' && !Array.isArray(base.tokens) ? base.tokens : {})
-  delete tokens.access_token
-  delete tokens.refresh_token
-  delete tokens.id_token
-  const updated = Object.assign({}, base, { tokens: tokens, last_refresh: null })
-  const tmp = filePath + '.tmp'
-  writeFileSync(tmp, JSON.stringify(updated, null, 2) + '\n', { mode: 0o600 })
-  chmodSync(tmp, 0o600)
-  renameSync(tmp, filePath)
-  chmodSync(filePath, 0o600)
-  return updated
+function terminalRefreshError(error) {
+  return typeof error === 'string' && [
+    'invalid_grant', 'invalid_refresh_token', 'token_expired',
+    'refresh_token_expired', 'refresh_token_invalidated', 'refresh_token_reused',
+  ].includes(error)
 }
 
-// 用授权码向官方端点换令牌对（PKCE verifier 证明持码者身份）；凭据仅经 HTTPS body 传递（不进子进程）；
-// 响应缺 access_token → { ok:false }（调用方不得写回）；网络/超时异常 → { ok:false, status:null }
-async function exchangeAuthorizationCode(code, verifier) {
-  try {
-    const res = await fetch('https://auth.openai.com/oauth/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        client_id: CODEX_OAUTH_CLIENT_ID,
-        code: code,
-        code_verifier: verifier,
-        redirect_uri: 'http://localhost:' + oauthCallbackPort() + OAUTH_CALLBACK_PATH,
-      }).toString(),
-      signal: AbortSignal.timeout(15000),
-    })
-    if (!res.ok) return { ok: false, status: res.status }
-    const body = await res.json()
-    if (!body || typeof body.access_token !== 'string' || body.access_token.length === 0) return { ok: false, status: res.status }
-    return {
-      ok: true,
-      access_token: body.access_token,
-      refresh_token: typeof body.refresh_token === 'string' && body.refresh_token.length > 0 ? body.refresh_token : null,
-      id_token: typeof body.id_token === 'string' && body.id_token.length > 0 ? body.id_token : null,
-    }
-  } catch (err) {
-    return { ok: false, status: null } // 网络/超时等异常 → 调用方按"交换失败"处理
-  }
+function pickDefaultModel(models, previous) {
+  const ids = (Array.isArray(models) ? models : []).map(function (m) { return m.id })
+  if (previous && ids.includes(previous)) return previous
+  const preferred = ['gpt-6.1-sol', 'gpt-6-sol', 'gpt-5.6-sol', 'gpt-5.5', 'gpt-5.4']
+  for (const id of preferred) if (ids.includes(id)) return id
+  return ids.length > 0 ? ids[0] : null
 }
 
-// 本地回调 server：仅监听 127.0.0.1；仅接受 /auth/callback；校验 state（防 CSRF/中间人）；
-// 端口占用（EADDRINUSE）等监听失败 → resolve(null)（调用方返回明确错误，不崩溃）
-function startOAuthCallbackServer(expectedState, onCode, port, language) {
-  return new Promise(function (resolve) {
-    let settled = false
-    let accepted = false
-    const fail = function () { if (!settled) { settled = true; resolve(null) } }
-    const server = createServer(async function (req, res) {
-      let pathname = '/'
-      let params = null
-      try {
-        const url = new URL(req.url || '/', 'http://localhost')
-        pathname = url.pathname
-        params = url.searchParams
-      } catch (err) {
-        respondOAuthPage(res, 400, 'oauth.invalidAddress', language)
-        return
-      }
-      if (pathname !== OAUTH_CALLBACK_PATH) {
-        respondOAuthPage(res, 404, 'oauth.notFound', language)
-        return
-      }
-      if (params.get('state') !== expectedState) {
-        respondOAuthPage(res, 400, 'oauth.invalidState', language)
-        return
-      }
-      const code = params.get('code')
-      if (!code) {
-        respondOAuthPage(res, 400, 'oauth.missingCode', language)
-        return
-      }
-      if (accepted) {
-        respondOAuthPage(res, 409, 'oauth.invalidState', language)
-        return
-      }
-      accepted = true
-      try {
-        const result = await onCode(code)
-        const ok = result && result.ok === true
-        // Only dictionary-owned error text reaches the browser, never callback
-        // parameters, server exceptions or credential values.
-        const key = ok ? 'oauth.complete' : 'error.' + (result && result.error && result.error.code || 'oauth.exception')
-        respondOAuthPage(res, ok ? 200 : 500, key, language, result && result.error && result.error.params)
-      } catch (err) {
-        respondOAuthPage(res, 500, 'error.oauth.exception', language)
-      }
-    })
-    server.on('error', fail)
-    server.listen(port, '127.0.0.1', function () {
-      if (!settled) {
-        settled = true
-        resolve({
-          server: server,
-          port: port,
-          close: function () { try { server.close() } catch (err) { /* 忽略 */ } },
-        })
-      }
-    })
-  })
-}
-
-// Render only dictionary-owned text; callback input never enters the HTML.
-function respondOAuthPage(res, status, key, language, params) {
-  const tag = typeof language === 'string' ? language.toLowerCase().replace(/_/g, '-') : 'en';
-  const selected = /^zh-(hant|tw|hk|mo)(-|$)/.test(tag) ? 'zh-hant' : tag;
-  const id = Object.hasOwn(LOCALES, selected) ? selected : Object.hasOwn(LOCALES, selected.split('-')[0]) ? selected.split('-')[0] : 'en';
-  const dictionary = LOCALES[id];
-  const message = (dictionary[key] || LOCALES.en[key] || dictionary['error.oauth.exception']).replace(/\{status\}/g, function () {
-    return params && Number.isInteger(params.status) ? String(params.status) : '';
-  });
-  const escapeHtml = function (value) {
-    return String(value).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
-  };
-  const html = '<!DOCTYPE html><html lang="' + escapeHtml(id) + '"><head><meta charset="utf-8"><title>ChatGPT</title></head>' +
-    '<body style="font-family:system-ui,sans-serif;padding:3rem 2rem;text-align:center;background:#f7f7f8">' +
-    '<h2 style="color:#0d0d0d">' + escapeHtml(message) + '</h2>' +
-    '<p style="color:#555">' + escapeHtml(dictionary['oauth.hint']) + '</p></body></html>';
-  res.statusCode = status;
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-store');
-  res.end(html);
-}
-
+export { readSettingsSection, settingsServiceReady, parseSession, pickDefaultModel, planDisplayName, needsRefresh, terminalRefreshError }
 // ============================================================================
-// apply：ChatGPT 订阅官方 OAuth 绑定 + 令牌看护 + openai-codex 路由注册
+// apply：SIWC 授权 + 令牌看护 + chatgpt-siwc 路由 + 本地规范化代理
 // ============================================================================
 export default {
   inject: ['credentials', 'settings', 'timer', 'shell'],
   apply(ctx) {
     const SELF_UPDATE_ENABLED = process.env.DSH_CHATGPT_SELF_UPDATE !== 'off' && isLoadedAsProfilePlugin()
     const SELF_UPDATE_DELAY_MS = 8000
-    // 此次 DSH 启动期间只要用户进入过插件设置页，自动更新就留到下次重启。
-    // 页面里点「检查更新」仍只检查；安装必须由确认动作触发。
     let updatePageVisited = false
     let selfUpdater = null
     if (SELF_UPDATE_ENABLED) {
@@ -623,16 +260,13 @@ export default {
         dataDir: UPDATE_DATA_DIR,
         runningVersion: packageVersion(),
         autoInstallAllowed: function () { return !updatePageVisited },
-        log: function (message) { try { console.warn('[dsh-chatgpt-sub] ' + message) } catch (err) { /* 日志失败无害 */ } },
+        log: function (message) { try { console.warn('[dsh-chatgpt-sub] ' + message) } catch (err) {} },
       })
       selfUpdater.loadState()
-      // 定时器随插件生命周期清理：宿主 ctx 提供 effect；桩 ctx / 老宿主没有时退回直接挂定时器
-      // （unref 保证不会拖住进程退出）。读 ctx.effect 一律包在 try 里 —— cordis 4 的 Context 是
-      // Proxy，某些形态下读未声明的属性会抛 "without inject"，这一点本仓库已踩过三次。
       const scheduleSelfUpdate = function () {
         const timer = setTimeout(function () {
           if (updatePageVisited) return
-          selfUpdater.run().catch(function () { /* 状态已落盘，无需上抛 */ })
+          selfUpdater.run().catch(function () {})
         }, SELF_UPDATE_DELAY_MS)
         if (timer && typeof timer.unref === 'function') timer.unref()
         return function () { clearTimeout(timer) }
@@ -641,10 +275,10 @@ export default {
         if (typeof ctx.effect === 'function') ctx.effect(scheduleSelfUpdate, 'dsh-chatgpt-sub: self update')
         else scheduleSelfUpdate()
       } catch (err) {
-        try { scheduleSelfUpdate() } catch (err2) { /* 定时器都挂不上就放弃自动更新，信息栏照常 */ }
+        try { scheduleSelfUpdate() } catch (err2) {}
       }
     }
-    // 自更新被禁用（测试隔离或用户显式关闭）时，RPC 仍要给出结构完整的只读状态，绝不让 UI 崩。
+
     function selfUpdateState() {
       if (selfUpdater) return selfUpdater.getState()
       const current = packageVersion()
@@ -653,35 +287,22 @@ export default {
         runningVersion: current, diskVersion: current, updated: false, disabled: true, lastErrorKind: null,
       }
     }
-    // ---------- 更新状态的唯一出口（2026-09-26）----------
-    // 所有「版本与更新」相关 RPC 都返回这一份 payload，形状完全一致。
-    // 为什么必须只有一个出口：客户端以前拿到动作结果后会把它与轮询到的状态「拼」在一起
-    // （Object.assign(prev, res)），而动作结果少几个字段 —— 于是点完检查更新，结论行还会说
-    // 「已是最新」，要等最多 15 秒的下一次轮询才对上（界面在说谎）。
-    // 现在客户端只认这一个形状，动作完成后重新读一次即可，不存在半状态。
+
     async function updateStatePayload() {
       const latest = await latestVersion()
       const current = packageVersion()
-      const state = selfUpdateState()
-      // 方向由 host 判定（客户端不做版本比较）：'update' 说明磁盘已是新版、'rollback' 说明用户
-      // 回滚过、磁盘比运行版本旧，两者都只有重启才生效，但文案要分开。
-      // 判据是「两者不等」而不是「disk 更高」：回滚之后 disk 低于 running，同样只有重启才生效。
-      const delta = compareSemver(current, state.runningVersion)
-      // restartKind 是三分类（2026-10-13，与 dsh-bottom-info-bar 同步）：磁盘比运行中旧时还要再分一次 ——
-      // 有回滚记录才算「用户回滚过」，没有记录只能说「磁盘上的版本变旧了」。以前只按版本高低判，于是
-      // 插件被外部装成旧版（DSH 自己的插件安装就会这样）时，界面会替用户编一句「已回滚到上一版」。
+      const update = selfUpdateState()
+      const delta = compareSemver(current, update.runningVersion)
       const restartKind = classifyRestart({
         diskVersion: current,
-        runningVersion: state.runningVersion,
-        holdVersion: state.holdVersion,
+        runningVersion: update.runningVersion,
+        holdVersion: update.holdVersion,
       })
-      return Object.assign({}, state, {
+      return Object.assign({}, update, {
         latest: latest,
         diskVersion: current,
         available: !!latest && compareSemver(latest, current) > 0,
         pendingRestart: delta !== 0,
-        // restartDirection 是为「包已替换、DSH 还没重启」时的旧页面留的兼容字段：旧 client 只认
-        // 它，改语义会让旧页面把降级当成「已是最新」（等于不提示重启）。新页面一律读 restartKind。
         restartDirection: delta > 0 ? 'update' : (delta < 0 ? 'rollback' : null),
         restartKind: restartKind,
       })
@@ -689,494 +310,761 @@ export default {
 
     mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 })
     chmodSync(DATA_DIR, 0o700)
-    // ---------- 状态 ----------
-    let codexBridgeState = { ok: false, lastSyncAt: null, expiresAt: null, error: null, routeConfigured: false };
-    let codexInjectedToken = null; // 最近成功注入 DSH 凭据的令牌（仅内存比对，防同值重复写盘）
-    let oauthInFlight = false; // OAuth 授权进行中（防并发：绝不同时存在两个回调 server/state）
-    let oauthLastError = null; // 最近一次 OAuth 流程错误（状态 RPC 透出；令牌值永不进入）
-    let syncInFlight = null; // 周期同步与 OAuth 后同步共享单飞锁，避免交叉读写凭据
-    let codexRouteOwned = false; // 进程内保留所有权，绑定标记缺失时仍可安全清理插件路由
-    let codexCredentialOwned = false; // 只清理插件自己注入的凭据，绝不碰用户已有同名凭据
 
-    // ---------- 路由注册（仅绑定时启用；用户同名路由绝不覆盖） ----------
-    async function ensureCodexRoute(flag) {
-      const settings = ctx.settings || ctx.get('settings');
-      if (!settingsServiceReady(settings)) {
-        return { ok: false, owned: false, code: 'route.dsh-not-ready', message: 'DSH 还没准备好，稍后会自动再试一次' };
+    const state = { ok: false, lastSyncAt: null, expiresAt: null, error: null, routeConfigured: false }
+    let oauthInFlight = false
+    let oauthLastError = null
+    let migrationNotice = null
+    let defaultModelWarning = null
+    let syncInFlight = null
+    let tokenInjected = null
+    let modelsCache = []
+    const tokenRef = { value: null, previous: null, previousAt: 0 }
+    let proxy = null
+    let proxyStarting = null
+
+    const credentials = function () { return ctx.credentials || ctx.get('credentials') }
+    const settings = function () { return ctx.settings || ctx.get('settings') }
+
+    function hasRecordApi() {
+      const service = credentials()
+      return !!service && typeof service.readRecord === 'function' && typeof service.modifyRecord === 'function'
+    }
+
+    async function readSession() {
+      const service = credentials()
+      if (hasRecordApi()) {
+        try { return parseSession(await service.readRecord(SESSION_KEY)) } catch (err) { return null }
       }
+      return readSessionFile()
+    }
+
+    async function saveSession(session) {
+      if (hasRecordApi()) {
+        await credentials().modifyRecord(SESSION_KEY, function () { return sessionToRecord(session) })
+      } else {
+        writeSessionFile(session)
+      }
+    }
+
+    async function deleteSession() {
+      if (hasRecordApi()) {
+        try { await credentials().deleteRecord(SESSION_KEY) } catch (err) {}
+      }
+      deleteSessionFile()
+    }
+
+    function ensureProxy() {
+      if (proxy) return Promise.resolve(proxy)
+      if (proxyStarting) return proxyStarting
+      proxyStarting = startResponsesProxy({
+        // 刷新瞬间旧令牌的在途请求仍然放行：只给 2 分钟宽限，之后必须用新令牌。
+        getAccessToken: function () {
+          const accepted = tokenRef.value ? [tokenRef.value] : []
+          if (tokenRef.previous && Date.now() - tokenRef.previousAt < 2 * 60 * 1000) accepted.push(tokenRef.previous)
+          return accepted
+        },
+        log: function (message) { try { console.log('[dsh-chatgpt-sub] ' + message) } catch (err) {} },
+      }).then(function (handle) {
+        proxy = handle
+        return handle
+      }).catch(function (err) {
+        state.error = { kind: 'proxy', code: 'proxy.start-failed', message: '本地 ChatGPT 通道没起来，请重启 DSH 再试' }
+        return null
+      }).finally(function () { proxyStarting = null })
+      return proxyStarting
+    }
+
+    try {
+      if (typeof ctx.effect === 'function') {
+        ctx.effect(function () {
+          return function () { if (proxy) { try { proxy.close() } catch (err) {} } }
+        }, 'dsh-chatgpt-sub: local proxy')
+      }
+    } catch (err) {}
+
+    function routeValue(baseUrl, models) {
+      return {
+        displayName: PROVIDER_DISPLAY,
+        api: 'openai-responses',
+        baseURL: baseUrl,
+        apiKeyEnv: TOKEN_REF,
+        models: models.map(function (model) { return { id: model.id, name: model.name } }),
+        defaultContextWindow: DEFAULT_CONTEXT_WINDOW,
+        defaultMaxTokens: DEFAULT_MAX_TOKENS,
+        defaultInput: ['text'],
+        transport: 'sse',
+      }
+    }
+
+    async function ensureRoute(flag, models) {
+      const service = settings()
+      if (!settingsServiceReady(service)) {
+        return { ok: false, owned: false, code: 'route.dsh-not-ready', message: 'DSH 还没准备好，稍后会自动再试一次' }
+      }
+      if (!proxy) return { ok: false, owned: false, code: 'route.proxy', message: '本地 ChatGPT 通道没起来，请重启 DSH 再试' }
       try {
-        const cur = readSettingsSection(settings, 'llm-pi-ai');
-        const providers = cur && typeof cur === 'object' && cur.providers && typeof cur.providers === 'object' ? cur.providers : {};
-        const existing = providers['openai-codex'];
-        if (existing && existing.apiKeyEnv !== 'OPENAI_CODEX_API_KEY') {
-          return { ok: false, owned: false, code: 'route.occupied', message: MSG_ROUTE_CONFLICT };
+        const current = readSettingsSection(service, 'llm-pi-ai')
+        const providers = current && typeof current === 'object' && current.providers && typeof current.providers === 'object' ? current.providers : {}
+        const existing = providers[PROVIDER_ID]
+        if (existing && existing.apiKeyEnv !== TOKEN_REF) {
+          return { ok: false, owned: false, code: 'route.occupied', message: MSG_ROUTE_CONFLICT }
         }
-        if (existing) {
-          // 只有绑定标记证明是插件旧版本创建的路由时才升级；同名用户路由只读不删不改。
-          if (flag && flag.routeOwned === true) {
-            const patch = {};
-            if (existing.displayName === 'Codex') patch.displayName = 'ChatGPT';
-            if (existing.transport !== 'sse') patch.transport = 'sse';
-            if (Object.keys(patch).length > 0) await settings.mutate('llm-pi-ai', [{ op: 'set', path: ['providers', 'openai-codex'], value: Object.assign({}, existing, patch) }]);
-          }
-          return { ok: true, owned: Boolean(flag && flag.routeOwned === true) };
+        const value = routeValue(proxy.baseUrl, models)
+        if (!existing || JSON.stringify(existing) !== JSON.stringify(value)) {
+          await service.mutate('llm-pi-ai', [{ op: 'set', path: ['providers', PROVIDER_ID], value: value }])
         }
-        await settings.mutate('llm-pi-ai', [{ op: 'set', path: ['providers', 'openai-codex'], value: { apiKeyEnv: 'OPENAI_CODEX_API_KEY', displayName: 'ChatGPT', transport: 'sse' } }]);
-        return { ok: true, owned: true };
+        return { ok: true, owned: true }
       } catch (err) {
-        return { ok: false, owned: false, code: 'route.create-failed', message: 'ChatGPT 通道没建起来，稍后会自动再试一次' };
+        return { ok: false, owned: false, code: 'route.create-failed', message: 'ChatGPT 通道没建起来，稍后会自动再试一次' }
       }
     }
 
-    async function removeOwnedCodexRoute(flag) {
-      if (!flag.routeOwned && !codexRouteOwned) return;
-      const settings = ctx.settings || ctx.get('settings');
-      if (!settingsServiceReady(settings)) return;
-      const cur = readSettingsSection(settings, 'llm-pi-ai');
-      const route = cur && cur.providers && cur.providers['openai-codex'];
-      if (route && route.apiKeyEnv === 'OPENAI_CODEX_API_KEY') {
-        await settings.mutate('llm-pi-ai', [{ op: 'unset', path: ['providers', 'openai-codex'] }]);
+    async function removeOwnedRoute(flag) {
+      // 未绑定时也要清掉残留路由：上次绑定可能在写 bind flag 前就崩了。
+      if (flag && flag.bound === true && flag.routeOwned !== true) return
+      const service = settings()
+      if (!settingsServiceReady(service)) return
+      const current = readSettingsSection(service, 'llm-pi-ai')
+      const route = current && current.providers && current.providers[PROVIDER_ID]
+      if (route && route.apiKeyEnv === TOKEN_REF) {
+        await service.mutate('llm-pi-ai', [{ op: 'unset', path: ['providers', PROVIDER_ID] }])
       }
     }
 
-    async function configureDefaultModel() {
-      const service = ctx.get('agentDefaultModel');
-      if (!service || typeof service.currentSelection !== 'function' || typeof service.saveSelection !== 'function') return { ok: false, previous: null, code: 'default-model.dsh-not-ready', message: 'DSH 还没准备好，暂时没法把默认模型切成 ChatGPT' };
-      const current = service.currentSelection();
-      if (!current || current.provider === 'openai-codex') return { ok: true, previous: null };
-      await service.saveSelection({ provider: 'openai-codex', model: CODEX_DEFAULT_MODEL, reasoningEffort: current.reasoningEffort });
-      return { ok: true, previous: current };
+    async function removeLegacyRoute() {
+      const service = settings()
+      if (!settingsServiceReady(service)) return
+      try {
+        const current = readSettingsSection(service, 'llm-pi-ai')
+        const route = current && current.providers && current.providers[OLD_PROVIDER_ID]
+        if (route && route.apiKeyEnv === OLD_TOKEN_REF) {
+          await service.mutate('llm-pi-ai', [{ op: 'unset', path: ['providers', OLD_PROVIDER_ID] }])
+        }
+      } catch (err) {}
+    }
+
+    async function injectToken(token) {
+      if (!token) return false
+      try {
+        await credentials().set(TOKEN_REF, token)
+        tokenInjected = token
+        if (tokenRef.value && tokenRef.value !== token) {
+          tokenRef.previous = tokenRef.value
+          tokenRef.previousAt = Date.now()
+        }
+        tokenRef.value = token
+        return true
+      } catch (err) {
+        return false
+      }
+    }
+
+    async function clearToken() {
+      tokenRef.value = null
+      tokenRef.previous = null
+      tokenRef.previousAt = 0
+      if (!tokenInjected && readBindFlag().credentialManaged !== true) return true
+      try {
+        await credentials().unset(TOKEN_REF)
+        tokenInjected = null
+        return true
+      } catch (err) {
+        tokenInjected = null
+        return false
+      }
+    }
+
+    async function configureDefaultModel(model) {
+      const service = ctx.get('agentDefaultModel')
+      if (!service || typeof service.currentSelection !== 'function' || typeof service.saveSelection !== 'function') {
+        return { ok: false, previous: null, code: 'default-model.dsh-not-ready', message: 'DSH 还没准备好，暂时没法把默认模型切成 ChatGPT' }
+      }
+      const current = service.currentSelection()
+      if (!current || current.provider === PROVIDER_ID) return { ok: true, previous: null }
+      await service.saveSelection({ provider: PROVIDER_ID, model: model, reasoningEffort: current.reasoningEffort })
+      return { ok: true, previous: current }
     }
 
     async function restoreDefaultModel(flag) {
-      if (!flag.defaultModelManaged || !flag.previousDefaultModel) return;
-      const service = ctx.get('agentDefaultModel');
-      if (!service || typeof service.currentSelection !== 'function' || typeof service.saveSelection !== 'function') return;
-      const current = service.currentSelection();
-      if (current && current.provider === 'openai-codex') await service.saveSelection(flag.previousDefaultModel);
+      if (!flag || !flag.defaultModelManaged || !flag.previousDefaultModel) return
+      const service = ctx.get('agentDefaultModel')
+      if (!service || typeof service.currentSelection !== 'function' || typeof service.saveSelection !== 'function') return
+      const current = service.currentSelection()
+      if (current && current.provider === PROVIDER_ID) await service.saveSelection(flag.previousDefaultModel)
     }
 
-    // ---------- 令牌看护（严格官方模式：绑定标记唯一事实） ----------
-    // 判定的不是「槽里有没有东西」，而是「槽里那东西是不是本插件的」。
-    // 旧实现只判空，导致插件把自己早期注入的令牌当成别人的，永久拒绝更新 —— 红字死锁的根因。
-    async function classifyCodexCredentialSlot(flag, candidateToken) {
-      if (codexCredentialOwned) return { claim: true, reason: 'owned' };
-      if (flag && flag.credentialManaged === true) return { claim: true, reason: 'managed' };
-      if (typeof ctx.credentials.resolve !== 'function') return { claim: false, reason: 'no-credentials-service' };
-      const existing = await ctx.credentials.resolve('OPENAI_CODEX_API_KEY');
-      return classifyCodexCredential(
-        existing && typeof existing === 'object' ? existing.value : '',
-        candidateToken,
-        { boundFlag: Boolean(flag && flag.bound), nowSeconds: Math.floor(Date.now() / 1000) }
-      );
-    }
-
-    async function clearInjectedCodexCredential(flag) {
-      if (!codexCredentialOwned && !(flag && flag.credentialManaged === true)) return true;
+    async function fetchModels(accessToken) {
       try {
-        await ctx.credentials.unset('OPENAI_CODEX_API_KEY');
-        codexInjectedToken = null;
-        codexCredentialOwned = false;
-        return true;
+        const response = await fetch(API_ORIGIN + '/models', {
+          headers: { authorization: 'Bearer ' + accessToken, accept: 'application/json' },
+          signal: AbortSignal.timeout(20000),
+        })
+        if (!response.ok) return null
+        const body = await response.json()
+        const models = parseModelList(body)
+        return models.length > 0 ? models : null
       } catch (err) {
-        codexInjectedToken = null;
-        return false;
+        return null
       }
     }
 
-    async function syncCodexToken() {
-      if (syncInFlight) return syncInFlight;
-      syncInFlight = syncCodexTokenOnce().catch(function () {
-        codexBridgeState = { ok: false, lastSyncAt: Date.now(), expiresAt: null, error: { kind: 'exception', code: 'sync.exception', message: '同步时出了点问题，稍后会自动再试一次' }, routeConfigured: codexBridgeState.routeConfigured };
-      }).finally(function () { syncInFlight = null; });
-      return syncInFlight;
-    }
-
-    async function syncCodexTokenOnce() {
-      const nowMs = Date.now();
-      const nowSec = Math.floor(nowMs / 1000);
-      const flag = readBindFlag(CODEX_BIND_FILE);
-      if (!flag.bound) {
-        const cleared = await clearInjectedCodexCredential(flag);
-        try { await removeOwnedCodexRoute(flag); codexRouteOwned = false; } catch (err) {
-          codexBridgeState = { ok: false, lastSyncAt: nowMs, expiresAt: null, error: { kind: 'route-cleanup', code: 'unbind.route-cleanup', message: '解绑后没清理干净，稍后会自动再试一次' }, routeConfigured: true };
-          return;
-        }
-        codexBridgeState = { ok: false, lastSyncAt: nowMs, expiresAt: null, error: cleared ? { kind: 'unbound', code: 'state.unbound', message: '还没有绑定 ChatGPT 账号' } : { kind: 'credentials-cleanup', code: 'state.unbound-dirty', message: '还没有绑定，而且之前留下的登录信息也没清掉' }, routeConfigured: false };
-        return;
-      }
-      if (!codexBridgeState.routeConfigured) {
-        const route = await ensureCodexRoute(flag);
-        if (!route.ok) {
-          codexBridgeState = { ok: false, lastSyncAt: nowMs, expiresAt: null, error: { kind: 'route-conflict', code: route.code || 'route.unknown', message: route.message }, routeConfigured: false };
-          return;
-        }
-        codexRouteOwned = route.owned;
-        codexBridgeState.routeConfigured = true;
-      }
-      const read = readCodexAuthFile(CODEX_AUTH_FILE);
-      if (!read.ok) {
-        const cleared = await clearInjectedCodexCredential(flag);
-        let routeRemoved = true;
-        try { await removeOwnedCodexRoute(flag); codexRouteOwned = false; } catch (err) { routeRemoved = false; }
-        const error = !routeRemoved ? { kind: 'route-cleanup', code: 'state.stale-route', message: '绑定已经失效，而且通道没清理干净' } : cleared ? { kind: 'no-login', code: 'state.no-login', message: '找不到登录信息了，请重新绑定' } : { kind: 'credentials-cleanup', code: 'state.no-login-dirty', message: '登录信息不见了，旧信息也没清掉，请重新绑定' };
-        codexBridgeState = { ok: false, lastSyncAt: nowMs, expiresAt: null, error: error, routeConfigured: !routeRemoved };
-        return;
-      }
-      const auth = read.auth;
-      const tokens = auth.tokens && typeof auth.tokens === 'object' ? auth.tokens : {};
-      const access = typeof tokens.access_token === 'string' ? tokens.access_token : '';
-      const refresh = typeof tokens.refresh_token === 'string' ? tokens.refresh_token : '';
-      const lastRefreshMs = Date.parse(auth.last_refresh);
-      if (!access) {
-        const cleared = await clearInjectedCodexCredential(flag);
-        let routeRemoved = true;
-        try { await removeOwnedCodexRoute(flag); codexRouteOwned = false; } catch (err) { routeRemoved = false; }
-        const error = !routeRemoved ? { kind: 'route-cleanup', code: 'state.stale-route-failed', message: '绑定失效且路由清理失败' } : cleared ? { kind: 'no-key', code: 'state.incomplete', message: '登录信息不完整，请重新绑定' } : { kind: 'credentials-cleanup', code: 'state.incomplete-dirty', message: '登录信息不完整，旧信息也没清掉，请重新绑定' };
-        codexBridgeState = { ok: false, lastSyncAt: nowMs, expiresAt: null, error: error, routeConfigured: !routeRemoved };
-        return;
-      }
-      let expiresAtSec = codexExpiresAt(decodeJwtExp(access), lastRefreshMs);
-      let token = null;
-      let error = null;
-
-      if (codexNeedsRefresh(expiresAtSec, nowSec)) {
-        if (!refresh) {
-          error = { kind: 'auth', code: 'token.expiring', message: '登录快到期了，而且没法自动续期，请重新绑定' };
-        } else {
-          const pair = await refreshCodexTokenPair(refresh);
-          if (pair) {
-            try {
-              const nextRefresh = pair.refresh_token || refresh;
-              const updated = writeAuthJson(CODEX_AUTH_FILE, auth, pair.access_token, nextRefresh, new Date().toISOString());
-              token = pair.access_token;
-              expiresAtSec = codexExpiresAt(decodeJwtExp(pair.access_token), Date.parse(updated.last_refresh));
-            } catch (err) {
-              token = pair.access_token;
-              expiresAtSec = codexExpiresAt(decodeJwtExp(pair.access_token), nowMs);
-              error = { kind: 'write', code: 'token.refresh-write-failed', message: '续期成功，但没能存到本地，下次可能还要重新绑定' };
+    async function refreshSession() {
+      const service = credentials()
+      const now = Date.now()
+      let outcome = null
+      if (hasRecordApi()) {
+        try {
+          await service.modifyRecord(SESSION_KEY, async function (record) {
+            const current = parseSession(record)
+            if (!current) { outcome = { ok: false, code: 'no-session' }; return undefined }
+            if (!needsRefresh(current, now)) { outcome = { ok: true, session: current, unchanged: true }; return undefined }
+            if (!current.refreshToken) { outcome = { ok: false, code: 'no-refresh', terminal: true }; return undefined }
+            const result = await refreshTokens({ clientId: current.clientId, refreshToken: current.refreshToken }, AbortSignal.timeout(20000))
+            if (!result.ok) {
+              outcome = { ok: false, code: result.error || ('http-' + result.status), terminal: terminalRefreshError(result.error) }
+              return undefined
             }
-          } else {
-            const reRead = readCodexAuthFile(CODEX_AUTH_FILE);
-            const reAuth = reRead.ok ? reRead.auth : null;
-            const reTokens = reAuth && reAuth.tokens && typeof reAuth.tokens === 'object' ? reAuth.tokens : {};
-            const reAccess = typeof reTokens.access_token === 'string' ? reTokens.access_token : '';
-            const reRefreshMs = reAuth && typeof reAuth.last_refresh === 'string' ? Date.parse(reAuth.last_refresh) : NaN;
-            if (reAuth && reAccess && !isNaN(reRefreshMs) && (isNaN(lastRefreshMs) || reRefreshMs > lastRefreshMs)) {
-              token = reAccess;
-              expiresAtSec = codexExpiresAt(decodeJwtExp(reAccess), reRefreshMs);
-            } else {
-              error = { kind: 'auth', code: 'token.refresh-failed', message: '自动续期失败，请重新绑定' };
+            const next = Object.assign({}, current, {
+              accessToken: result.tokens.accessToken,
+              refreshToken: result.tokens.refreshToken || current.refreshToken,
+              idToken: result.tokens.idToken || current.idToken,
+              expiresAt: now + result.tokens.expiresIn * 1000,
+              earliestRefreshAt: result.tokens.earliestRefreshAt,
+              scopes: result.tokens.scopes.length > 0 ? result.tokens.scopes : current.scopes,
+              savedAt: new Date(now).toISOString(),
+            })
+            if (result.tokens.idToken) {
+              const account = accountFromIdToken(result.tokens.idToken)
+              if (account.subject) next.subject = account.subject
+              if (account.email) next.email = account.email
+              if (account.plan) next.plan = account.plan
             }
-          }
-        }
-      } else {
-        token = access;
-      }
-
-      if (!token && error) {
-        const cleared = await clearInjectedCodexCredential(flag);
-        if (!cleared) error = { kind: 'credentials-cleanup', code: 'token.invalid-dirty', message: '登录信息用不了，旧信息也没清掉，请重新绑定' };
-      }
-      if (token && token !== codexInjectedToken) {
-        const claim = await classifyCodexCredentialSlot(flag, token);
-        if (!claim.claim) {
-          error = { kind: 'credentials-conflict', code: 'credentials.conflict', message: MSG_CREDENTIAL_CONFLICT };
-        } else try {
-          await ctx.credentials.set('OPENAI_CODEX_API_KEY', token);
-          codexInjectedToken = token;
-          codexCredentialOwned = true;
-          // 账本迁移：老版本绑定标记缺「凭据归本插件所有」一栏，成功接管后立即补记，
-          // 之后每次同步都能一步自证，不必再依赖同源判定 —— 防复发。
-          if (!(flag && flag.credentialManaged === true)) {
-            try { writeBindFlag(CODEX_BIND_FILE, withCredentialManaged(flag)); } catch (migErr) { /* 记账失败不影响本次可用，下周期再补 */ }
-          }
+            outcome = { ok: true, session: next }
+            return sessionToRecord(next)
+          })
         } catch (err) {
-          const cleared = await clearInjectedCodexCredential(flag);
-          error = cleared ? { kind: 'credentials', code: 'credentials.sync-failed', message: '登录信息同步到 DSH 失败，请重试或重新绑定' } : { kind: 'credentials-cleanup', code: 'credentials.sync-failed-dirty', message: '登录信息同步失败，且旧信息清理也未成功，请重新绑定' };
+          outcome = { ok: false, code: 'exception', terminal: false }
         }
+        return outcome
       }
-      codexBridgeState = { ok: !error, lastSyncAt: nowMs, expiresAt: expiresAtSec != null ? expiresAtSec * 1000 : null, error: error, routeConfigured: codexBridgeState.routeConfigured };
+
+      const current = readSessionFile()
+      if (!current) return { ok: false, code: 'no-session' }
+      if (!needsRefresh(current, now)) return { ok: true, session: current, unchanged: true }
+      if (!current.refreshToken) return { ok: false, code: 'no-refresh', terminal: true }
+      const result = await refreshTokens({ clientId: current.clientId, refreshToken: current.refreshToken }, AbortSignal.timeout(20000))
+      if (!result.ok) return { ok: false, code: result.error || ('http-' + result.status), terminal: terminalRefreshError(result.error) }
+      const next = Object.assign({}, current, {
+        accessToken: result.tokens.accessToken,
+        refreshToken: result.tokens.refreshToken || current.refreshToken,
+        idToken: result.tokens.idToken || current.idToken,
+        expiresAt: now + result.tokens.expiresIn * 1000,
+        earliestRefreshAt: result.tokens.earliestRefreshAt,
+        scopes: result.tokens.scopes.length > 0 ? result.tokens.scopes : current.scopes,
+        savedAt: new Date(now).toISOString(),
+      })
+      writeSessionFile(next)
+      return { ok: true, session: next }
     }
 
-    // ---------- OAuth 官方绑定（PKCE + state + 本地回调 127.0.0.1） ----------
+    async function syncOnce() {
+      const now = Date.now()
+      const flag = readBindFlag()
+      if (!flag.bound) {
+        await clearToken()
+        try { await removeOwnedRoute(flag) } catch (err) {}
+        state.ok = false
+        state.lastSyncAt = now
+        state.expiresAt = null
+        state.routeConfigured = false
+        state.error = migrationNotice || { kind: 'unbound', code: 'state.unbound', message: '还没有绑定 ChatGPT 账号' }
+        return
+      }
+
+      const session = await readSession()
+      if (!session) {
+        await clearToken()
+        try { await removeOwnedRoute(flag) } catch (err) {}
+        writeBindFlag(Object.assign({}, flag, { bound: false, routeOwned: false }))
+        state.ok = false
+        state.lastSyncAt = now
+        state.expiresAt = null
+        state.routeConfigured = false
+        state.error = { kind: 'no-login', code: 'state.no-login', message: '找不到登录信息了，请重新绑定' }
+        return
+      }
+
+      const refreshed = await refreshSession()
+      if (!refreshed.ok) {
+        if (refreshed.terminal) {
+          await deleteSession()
+          await clearToken()
+          try { await removeOwnedRoute(flag) } catch (err) {}
+          writeBindFlag(Object.assign({}, flag, { bound: false, routeOwned: false }))
+          state.ok = false
+          state.lastSyncAt = now
+          state.expiresAt = null
+          state.routeConfigured = false
+          state.error = { kind: 'auth', code: 'token.refresh-terminal', message: '登录已失效（可能已在 ChatGPT 里断开），请重新绑定' }
+          return
+        }
+        state.ok = false
+        state.lastSyncAt = now
+        state.expiresAt = session.expiresAt
+        state.error = { kind: 'auth', code: 'token.refresh-failed', message: '自动续期失败，稍后会自动再试一次' }
+        return
+      }
+
+      const active = refreshed.session
+      if (!hasPlanUsage(active.scopes)) {
+        state.ok = false
+        state.lastSyncAt = now
+        state.expiresAt = active.expiresAt
+        state.error = { kind: 'plan', code: 'token.plan-usage-missing', message: '这次登录没有允许使用 ChatGPT 套餐额度，请在插件页重新绑定并允许' }
+        return
+      }
+
+      if (!(await injectToken(active.accessToken))) {
+        state.ok = false
+        state.lastSyncAt = now
+        state.expiresAt = active.expiresAt
+        state.error = { kind: 'credentials', code: 'credentials.sync-failed', message: '登录信息同步到 DSH 失败，请重试或重新绑定' }
+        return
+      }
+
+      if (modelsCache.length === 0) modelsCache = Array.isArray(flag.models) ? flag.models : []
+      if (modelsCache.length === 0) {
+        const fetched = await fetchModels(active.accessToken)
+        if (fetched) {
+          modelsCache = fetched
+          try { writeBindFlag(Object.assign({}, flag, { models: fetched })) } catch (err) {}
+        }
+      }
+
+      const route = await ensureRoute(flag, modelsCache)
+      if (!route.ok) {
+        state.ok = false
+        state.lastSyncAt = now
+        state.expiresAt = active.expiresAt
+        state.routeConfigured = false
+        state.error = { kind: 'route', code: route.code || 'route.unknown', message: route.message }
+        return
+      }
+
+      state.ok = true
+      state.lastSyncAt = now
+      state.expiresAt = active.expiresAt
+      state.routeConfigured = true
+      state.error = null
+    }
+
+    function sync() {
+      if (syncInFlight) return syncInFlight
+      syncInFlight = syncOnce().catch(function () {
+        state.ok = false
+        state.lastSyncAt = Date.now()
+        state.error = { kind: 'exception', code: 'sync.exception', message: '同步时出了点问题，稍后会自动再试一次' }
+      }).finally(function () { syncInFlight = null })
+      return syncInFlight
+    }
+
     function deferred() {
-      let resolve = null;
-      const promise = new Promise(function (res) { resolve = res; });
-      return { promise: promise, resolve: resolve };
+      let resolve = null
+      const promise = new Promise(function (res) { resolve = res })
+      return { promise: promise, resolve: resolve }
     }
 
     async function openOAuthBrowser(authorizeUrl) {
-      const shell = (ctx && ctx.shell) || ctx.get('shell');
-      if (!shell || typeof shell.run !== 'function') return false;
-      const platform = typeof process !== 'undefined' && process.platform ? process.platform : '';
-      const openCmd = platform === 'darwin' ? 'open' : platform === 'win32' ? 'cmd /c start ""' : 'xdg-open';
-      const safeUrl = String(authorizeUrl).replace(/["$`\\]/g, '\\$&');
-      const request = { command: openCmd + ' "' + safeUrl + '"' };
+      const shell = (ctx && ctx.shell) || ctx.get('shell')
+      if (!shell || typeof shell.run !== 'function') return false
+      const platform = typeof process !== 'undefined' && process.platform ? process.platform : ''
+      const openCmd = platform === 'darwin' ? 'open' : platform === 'win32' ? 'cmd /c start ""' : 'xdg-open'
+      const safeUrl = String(authorizeUrl).replace(/["$\\]/g, '\\$&')
+      const request = { command: openCmd + ' "' + safeUrl + '"' }
       try {
-        const result = await shell.run(typeof shell.resolve === 'function' ? shell.resolve(request) : request);
-        return !result || result.exitCode === 0 || result.exitCode === undefined;
+        const result = await shell.run(typeof shell.resolve === 'function' ? shell.resolve(request) : request)
+        return !result || result.exitCode === 0 || result.exitCode === undefined
       } catch (err) {
-        return false;
+        return false
       }
     }
 
-    async function rollbackBindingSetup(route, defaultModel, previousAuth, newAccessToken) {
-      if (previousAuth !== undefined && typeof newAccessToken === 'string') {
-        try {
-          const current = readCodexAuthFile(CODEX_AUTH_FILE);
-          const currentTokens = current.ok && current.auth.tokens && typeof current.auth.tokens === 'object' ? current.auth.tokens : {};
-          if (current.ok && currentTokens.access_token === newAccessToken) {
-            if (previousAuth === null) unlinkSync(CODEX_AUTH_FILE);
-            else {
-              const previousTokens = previousAuth.tokens && typeof previousAuth.tokens === 'object' ? previousAuth.tokens : {};
-              writeAuthJson(CODEX_AUTH_FILE, previousAuth, typeof previousTokens.access_token === 'string' ? previousTokens.access_token : '', typeof previousTokens.refresh_token === 'string' ? previousTokens.refresh_token : null, previousAuth.last_refresh || null);
-            }
+    function startCallbackServer(expectedState, language) {
+      return new Promise(function (resolve, reject) {
+        const gate = deferred()
+        let accepted = false
+        const server = createServer(function (req, res) {
+          let url = null
+          try { url = new URL(req.url || '/', 'http://127.0.0.1') } catch (err) {
+            respondOAuthPage(res, 400, 'oauth.invalidAddress', language)
+            return
           }
-        } catch (err) {}
-      }
-      if (defaultModel && defaultModel.previous) {
-        try { await restoreDefaultModel({ defaultModelManaged: true, previousDefaultModel: defaultModel.previous }); } catch (err) {}
-      }
-      if (route && route.ok) {
-        try { await removeOwnedCodexRoute({ routeOwned: route.owned }); } catch (err) {}
-      }
-      codexRouteOwned = false;
+          if (url.pathname !== CALLBACK_PATH) {
+            respondOAuthPage(res, 404, 'oauth.notFound', language)
+            return
+          }
+          if (url.searchParams.get('state') !== expectedState) {
+            respondOAuthPage(res, 400, 'oauth.invalidState', language)
+            return
+          }
+          if (accepted) {
+            respondOAuthPage(res, 409, 'oauth.invalidState', language)
+            return
+          }
+          accepted = true
+          const parsed = parseCallbackParams({
+            error: url.searchParams.get('error'),
+            code: url.searchParams.get('code'),
+            state: url.searchParams.get('state'),
+            client_id: url.searchParams.get('client_id'),
+            scope: url.searchParams.get('scope'),
+          })
+          if (parsed.error) {
+            respondOAuthPage(res, 400, 'error.oauth.declined', language)
+            gate.resolve({ error: parsed.error })
+            return
+          }
+          if (!parsed.code) {
+            respondOAuthPage(res, 400, 'oauth.missingCode', language)
+            gate.resolve({ error: 'missing_code' })
+            return
+          }
+          respondOAuthPage(res, 200, 'oauth.complete', language)
+          gate.resolve({ code: parsed.code, clientId: parsed.clientId })
+        })
+        server.on('error', reject)
+        server.listen(0, '127.0.0.1', function () {
+          const address = server.address()
+          const port = address && typeof address === 'object' ? address.port : 0
+          resolve({
+            server: server,
+            redirectUri: 'http://127.0.0.1:' + port + CALLBACK_PATH,
+            result: gate.promise,
+            close: function () {
+              try { server.close() } catch (err) {}
+              try { server.closeAllConnections && server.closeAllConnections() } catch (err) {}
+            },
+          })
+        })
+      })
     }
 
-    async function runCodexOAuthFlow(pkce, state, serverHandle, authorizeUrl, waitCode) {
-      let timer = null;
-      let route = null;
-      let defaultModel = null;
-      let previousAuth = undefined;
-      let newAccessToken = null;
+    async function runOAuthFlow(input) {
       try {
-        // OS browser launchers can keep the shell command pending. The callback
-        // and its timeout must be processed independently of that command.
-        openOAuthBrowser(authorizeUrl).catch(function () {});
-        const code = await Promise.race([
-          waitCode.promise,
-          new Promise(function (resolve) { timer = setTimeout(function () { resolve(null); }, OAUTH_CALLBACK_TIMEOUT_MS); }),
-        ]);
-        if (!code) { oauthLastError = { kind: 'timeout', code: 'oauth.timeout', message: '等了 5 分钟没等到授权结果，已取消。请再点一次「绑定 ChatGPT 账号」' }; return; }
-        const exchanged = await exchangeAuthorizationCode(code, pkce.verifier);
+        const callback = await Promise.race([
+          input.listener.result,
+          new Promise(function (resolve) { setTimeout(function () { resolve({ timeout: true }) }, OAUTH_CALLBACK_TIMEOUT_MS) }),
+        ])
+        if (!callback || callback.timeout) {
+          oauthLastError = { kind: 'timeout', code: 'oauth.timeout', message: '等了 5 分钟没等到授权结果，已取消。请再点一次「绑定 ChatGPT 账号」' }
+          return
+        }
+        if (callback.error) {
+          oauthLastError = { kind: 'declined', code: 'oauth.declined', message: '授权在浏览器里被取消了。想继续用就再点一次绑定，并在页面上允许使用套餐额度' }
+          return
+        }
+
+        const issuedClientId = callback.clientId || input.clientId
+        if (!issuedClientId || issuedClientId === DYNAMIC_CLIENT_ID) {
+          oauthLastError = { kind: 'registration', code: 'oauth.registration-incomplete', message: '授权回调里没有拿到本应用的注册信息，请重新绑定' }
+          return
+        }
+        if (input.clientId !== DYNAMIC_CLIENT_ID && callback.clientId && callback.clientId !== input.clientId) {
+          oauthLastError = { kind: 'registration', code: 'oauth.registration-mismatch', message: '这次授权返回的账号与之前保存的不一致，请重新绑定' }
+          return
+        }
+
+        const exchanged = await exchangeAuthorizationCode({
+          clientId: issuedClientId,
+          code: callback.code,
+          verifier: input.verifier,
+          redirectUri: input.listener.redirectUri,
+        })
         if (!exchanged.ok) {
-          oauthLastError = { kind: 'exchange', code: exchanged.status != null ? 'oauth.exchange-http' : 'oauth.exchange-network', params: exchanged.status != null ? { status: exchanged.status } : null, message: '授权完成了，但没取到登录信息（' + (exchanged.status != null ? '网络返回 ' + exchanged.status : '连不上网络') + '）。请重试' };
-          return;
+          oauthLastError = {
+            kind: 'exchange',
+            code: exchanged.status != null ? 'oauth.exchange-http' : 'oauth.exchange-network',
+            params: exchanged.status != null ? { status: exchanged.status } : null,
+            message: '授权完成了，但没取到登录信息（' + (exchanged.status != null ? '网络返回 ' + exchanged.status : '连不上网络') + '）。请重试',
+          }
+          return
         }
-        const nowIso = new Date().toISOString();
-        const read = readCodexAuthFile(CODEX_AUTH_FILE);
-        previousAuth = read.ok ? read.auth : null;
-        newAccessToken = exchanged.access_token;
-        const authToWrite = buildOAuthAuthObject(read.ok ? read.auth : null, exchanged, nowIso);
+        if (!exchanged.tokens.idToken) {
+          oauthLastError = { kind: 'id-token', code: 'oauth.id-token-invalid', message: '登录信息不完整（缺少身份令牌），请重新绑定' }
+          return
+        }
+
+        let claims = null
         try {
-          writeAuthJson(CODEX_AUTH_FILE, authToWrite, exchanged.access_token, authToWrite.tokens.refresh_token != null ? authToWrite.tokens.refresh_token : null, nowIso);
+          claims = await verifyIdToken(exchanged.tokens.idToken, { clientId: issuedClientId, nonce: input.nonce })
         } catch (err) {
-          oauthLastError = { kind: 'write', code: 'oauth.write-failed', message: '登录成功了，但没能存到本地。请重新绑定' };
-          return;
+          oauthLastError = { kind: 'id-token', code: 'oauth.id-token-invalid', message: '登录信息校验失败，请检查系统时间后重试' }
+          return
         }
-        const priorFlag = readBindFlag(CODEX_BIND_FILE);
-        route = await ensureCodexRoute(priorFlag);
-        if (!route.ok) {
-          await rollbackBindingSetup(route, defaultModel, previousAuth, newAccessToken);
-          oauthLastError = { kind: 'route-conflict', code: route.code || 'route.unknown', message: route.message };
-          return;
+
+        if (!hasPlanUsage(exchanged.tokens.scopes)) {
+          oauthLastError = { kind: 'plan', code: 'oauth.plan-usage-missing', message: '登录成功了，但没有允许本应用使用 ChatGPT 套餐额度。请重新绑定，并在授权页允许「使用套餐额度」' }
+          return
         }
-        codexRouteOwned = route.owned;
+
+        const now = Date.now()
+        const account = accountFromIdToken(exchanged.tokens.idToken)
+        const session = {
+          version: 1,
+          clientId: issuedClientId,
+          hostId: input.hostId,
+          subject: account.subject || claims.sub,
+          email: account.email,
+          plan: account.plan,
+          idToken: exchanged.tokens.idToken,
+          accessToken: exchanged.tokens.accessToken,
+          refreshToken: exchanged.tokens.refreshToken,
+          expiresAt: now + exchanged.tokens.expiresIn * 1000,
+          earliestRefreshAt: exchanged.tokens.earliestRefreshAt,
+          scopes: exchanged.tokens.scopes,
+          savedAt: new Date(now).toISOString(),
+        }
+        await saveSession(session)
+
+        const models = (await fetchModels(session.accessToken)) || modelsCache
+        if (!models || models.length === 0) {
+          await deleteSession()
+          oauthLastError = { kind: 'models', code: 'models.empty', message: '登录成功了，但没读到这个账号可用的模型。请重试' }
+          return
+        }
+        modelsCache = models
+
+        const routeResult = await ensureRoute({ routeOwned: true }, models)
+        if (!routeResult.ok) {
+          await deleteSession()
+          oauthLastError = { kind: 'route', code: routeResult.code || 'route.unknown', message: routeResult.message }
+          return
+        }
+
+        const chosen = pickDefaultModel(models, input.previousModel)
+        let defaultModel = { ok: false, previous: null }
         try {
-          defaultModel = await configureDefaultModel();
-          if (!defaultModel.previous && priorFlag.defaultModelManaged) defaultModel.previous = priorFlag.previousDefaultModel;
+          defaultModel = await configureDefaultModel(chosen)
+          // 新路由刚写进设置，宿主的模型目录可能还没刷新；给一次短重试。
+          if (!defaultModel.ok) {
+            await new Promise(function (resolve) { setTimeout(resolve, 800) })
+            defaultModel = await configureDefaultModel(chosen)
+          }
         } catch (err) {
-          await rollbackBindingSetup(route, defaultModel, previousAuth, newAccessToken);
-          oauthLastError = { kind: 'default-model', code: 'oauth.default-model-manual', message: '绑定成功了，但没能自动设为默认模型。请到「模型」设置里手动选一次 ChatGPT' };
-          return;
+          defaultModel = { ok: false, previous: null }
         }
-        if (!defaultModel.ok) {
-          await rollbackBindingSetup(route, defaultModel, previousAuth, newAccessToken);
-          oauthLastError = { kind: 'default-model', code: defaultModel.code || 'default-model.unknown', message: defaultModel.message };
-          return;
+        defaultModelWarning = defaultModel.ok ? null : { kind: 'default-model', code: 'oauth.default-model-manual', message: '绑定成功，但没设为默认模型。请到「模型」设置里选一次 ChatGPT' }
+
+        if (!(await injectToken(session.accessToken))) {
+          await removeOwnedRoute({ routeOwned: true })
+          await deleteSession()
+          oauthLastError = { kind: 'credentials', code: 'oauth.credentials-failed', message: '绑定失败：登录信息没能交给 DSH。请重试' }
+          return
         }
-        const claim = await classifyCodexCredentialSlot(priorFlag, exchanged.access_token);
-        if (!claim.claim) {
-          await rollbackBindingSetup(route, defaultModel, previousAuth, newAccessToken);
-          oauthLastError = { kind: 'credentials-conflict', code: 'credentials.conflict', message: MSG_CREDENTIAL_CONFLICT };
-          return;
-        }
-        try {
-          writeBindFlag(CODEX_BIND_FILE, Object.assign(withCredentialManaged(priorFlag), {
-            routeOwned: route.owned,
-            defaultModelManaged: Boolean(defaultModel.previous),
-            previousDefaultModel: defaultModel.previous,
-          }, { boundAt: nowIso }));
-        } catch (err) {
-          await rollbackBindingSetup(route, defaultModel, previousAuth, newAccessToken);
-          oauthLastError = { kind: 'write', code: 'oauth.flag-write-failed', message: '绑定成功了，但状态没存住。请重新绑定' };
-          return;
-        }
-        try {
-          await ctx.credentials.set('OPENAI_CODEX_API_KEY', exchanged.access_token);          codexInjectedToken = exchanged.access_token;
-          codexCredentialOwned = true;
-        } catch (err) {
-          try { clearBindFlag(CODEX_BIND_FILE); } catch (clearErr) { /* 状态仍保持失败，下一次同步会继续清理 */ }
-          await rollbackBindingSetup(route, defaultModel, previousAuth, newAccessToken);
-          oauthLastError = { kind: 'credentials', code: 'oauth.credentials-failed', message: '绑定失败：登录信息没能交给 DSH。请重试' };
-          codexBridgeState = { ok: false, lastSyncAt: Date.now(), expiresAt: null, error: oauthLastError, routeConfigured: route.ok };
-          return;
-        }
-        const expiresAtSec = codexExpiresAt(decodeJwtExp(exchanged.access_token), Date.parse(nowIso));
-        codexBridgeState = { ok: true, lastSyncAt: Date.now(), expiresAt: expiresAtSec != null ? expiresAtSec * 1000 : null, error: null, routeConfigured: route.ok };
+
+        writeBindFlag({
+          bound: true,
+          clientId: issuedClientId,
+          hostId: input.hostId,
+          email: session.email,
+          plan: session.plan,
+          models: models,
+          routeOwned: true,
+          defaultModelManaged: Boolean(defaultModel.previous),
+          previousDefaultModel: defaultModel.previous,
+          credentialManaged: true,
+        })
+        state.ok = true
+        state.lastSyncAt = Date.now()
+        state.expiresAt = session.expiresAt
+        state.routeConfigured = true
+        state.error = defaultModelWarning
+        oauthLastError = null
+        migrationNotice = null
       } catch (err) {
-        await rollbackBindingSetup(route, defaultModel, previousAuth, newAccessToken);
-        oauthLastError = { kind: 'exception', code: 'oauth.exception', message: '绑定时出了点问题，请重试' };
+        oauthLastError = { kind: 'exception', code: 'oauth.exception', message: '绑定时出了点问题，请重试' }
       } finally {
-        if (timer) clearTimeout(timer);
-        try { serverHandle.close(); } catch (err) { /* 忽略 */ }
-        oauthInFlight = false;
+        oauthInFlight = false
       }
     }
 
-    async function startCodexOAuthRpc(args) {
-      if (oauthInFlight) return { ok: false, oauthInFlight: true, error: { kind: 'in-flight', code: 'oauth.in-flight', message: '正在等你在浏览器里完成授权，请稍候' } };
-      oauthInFlight = true;
-      oauthLastError = null;
-      const pkce = createPkcePair();
-      const state = randomBytes(16).toString('hex');
-      const port = oauthCallbackPort();
-      const waitCode = deferred();
-      const completion = deferred();
-      const serverHandle = await startOAuthCallbackServer(state, function (code) {
-        waitCode.resolve(code);
-        return completion.promise;
-      }, port, args && args.language);
-      if (!serverHandle) {
-        oauthInFlight = false;
-        return { ok: false, oauthInFlight: false, error: { kind: 'port-busy', code: 'oauth.port-busy', params: { port: port }, message: '本机 ' + port + ' 端口被别的程序占了。请关掉它（比如正在登录的 Codex 命令行），再重试' } };
+    async function startOAuthRpc(args) {
+      if (oauthInFlight) return { ok: false, oauthInFlight: true, error: { kind: 'in-flight', code: 'oauth.in-flight', message: '正在等你在浏览器里完成授权，请稍候' } }
+      oauthInFlight = true
+      oauthLastError = null
+      await ensureProxy()
+      if (!proxy) {
+        oauthInFlight = false
+        return { ok: false, error: { kind: 'proxy', code: 'proxy.start-failed', message: '本地 ChatGPT 通道没起来，请重启 DSH 再试' } }
       }
-      const authorizeUrl = buildAuthorizeUrl(state, pkce.challenge);
-      runCodexOAuthFlow(pkce, state, serverHandle, authorizeUrl, waitCode).then(function () {
-        completion.resolve({ ok: !oauthLastError && codexBridgeState.ok, error: oauthLastError });
-      }).catch(function () {
-        oauthLastError = { kind: 'exception', code: 'oauth.exception', message: '绑定时出了点问题，请重试' };
-        completion.resolve({ ok: false, error: oauthLastError });
-      });
-      return { ok: true, authorizeUrl: authorizeUrl, oauthInFlight: true };
-    }
-
-    async function unbindCodexRpc() {
-      if (oauthInFlight) return { ok: false, error: { kind: 'in-flight', code: 'unbind.in-flight', message: '正在等你在浏览器里完成授权，请先把它做完，或等它超时' } };
+      const flag = readBindFlag()
+      const hostId = flag.hostId || ensureHostId()
+      const pkce = createPkcePair(randomBytes, createHash)
+      const stateValue = newState(randomBytes)
+      const nonce = randomBytes(24).toString('base64url')
+      let listener = null
       try {
-        const flag = readBindFlag(CODEX_BIND_FILE);
-        await removeOwnedCodexRoute(flag);
-        codexRouteOwned = false;
-        await restoreDefaultModel(flag);
-        const cleared = await clearInjectedCodexCredential(flag);
-        if (!cleared) throw new Error('credentials cleanup failed');
-        clearBindFlag(CODEX_BIND_FILE);
-        codexBridgeState = { ok: false, lastSyncAt: Date.now(), expiresAt: null, error: { kind: 'unbound', code: 'unbind.done', message: '已经解除绑定' }, routeConfigured: false };
-        return { ok: true, bound: false };
+        listener = await startCallbackServer(stateValue, args && args.language)
       } catch (err) {
-        return { ok: false, error: { kind: 'exception', code: 'unbind.exception', message: '解绑失败，请重试' } };
+        oauthInFlight = false
+        return { ok: false, error: { kind: 'port-busy', code: 'oauth.port-busy', params: { port: 0 }, message: '本机回调端口没起来，请重试' } }
+      }
+      const clientId = flag.clientId || DYNAMIC_CLIENT_ID
+      const authorizeUrl = buildAuthorizeUrl({
+        clientId: clientId,
+        hostId: hostId,
+        redirectUri: listener.redirectUri,
+        state: stateValue,
+        nonce: nonce,
+        codeChallenge: pkce.challenge,
+        agentNameHint: APP_NAME_HINT,
+      })
+      openOAuthBrowser(authorizeUrl).catch(function () {})
+      runOAuthFlow({
+        listener: listener,
+        verifier: pkce.verifier,
+        nonce: nonce,
+        clientId: clientId,
+        hostId: hostId,
+        previousModel: flag.models && flag.models.length > 0 ? pickDefaultModel(flag.models, null) : null,
+      }).catch(function () {
+        oauthLastError = { kind: 'exception', code: 'oauth.exception', message: '绑定时出了点问题，请重试' }
+        oauthInFlight = false
+      }).finally(function () {
+        try { listener.close() } catch (err) {}
+      })
+      return { ok: true, authorizeUrl: authorizeUrl, oauthInFlight: true }
+    }
+
+    async function unbindRpc() {
+      if (oauthInFlight) return { ok: false, error: { kind: 'in-flight', code: 'unbind.in-flight', message: '授权还在进行中，请先完成或等它超时' } }
+      try {
+        const flag = readBindFlag()
+        const session = await readSession()
+        if (session && session.refreshToken && session.clientId) {
+          await revokeRefreshToken({ clientId: session.clientId, refreshToken: session.refreshToken }, AbortSignal.timeout(10000))
+        }
+        await removeOwnedRoute(flag)
+        await restoreDefaultModel(flag)
+        await clearToken()
+        await deleteSession()
+        writeBindFlag({
+          bound: false,
+          clientId: flag.clientId,
+          hostId: flag.hostId,
+          email: flag.email,
+          plan: flag.plan,
+          routeOwned: false,
+          credentialManaged: false,
+        })
+        state.ok = false
+        state.lastSyncAt = Date.now()
+        state.expiresAt = null
+        state.routeConfigured = false
+        migrationNotice = null
+        defaultModelWarning = null
+        state.error = { kind: 'unbound', code: 'unbind.done', message: '已经解除绑定' }
+        tokenInjected = null
+        return { ok: true, bound: false }
+      } catch (err) {
+        return { ok: false, error: { kind: 'exception', code: 'unbind.exception', message: '解绑失败，请重试' } }
       }
     }
 
-    function getCodexBridgeStatusRpc() {
-      const flag = readBindFlag(CODEX_BIND_FILE);
-      // 账号摘要只在已绑定时读一次本地登录文件；邮箱已在 host 侧脱敏，完整值不跨进程传输。
-      const read = flag.bound ? readCodexAuthFile(CODEX_AUTH_FILE) : { ok: false };
-      const summary = read.ok ? codexAccountSummary(read.auth) : null;
+    function getStatusRpc() {
+      const flag = readBindFlag()
+      const account = flag.bound && (flag.email || flag.plan)
+        ? { email: maskEmail(flag.email), plan: planDisplayName(flag.plan) }
+        : null
       return {
-        ok: codexBridgeState.ok,
-        bound: flag.bound,          // 绑定标记是唯一事实
+        ok: state.ok,
+        bound: flag.bound,
         oauthInFlight: oauthInFlight,
-        expiresAt: codexBridgeState.expiresAt,
-        lastSyncAt: codexBridgeState.lastSyncAt,
-        error: oauthLastError || codexBridgeState.error,
-        routeConfigured: codexBridgeState.routeConfigured,
-        account: summary ? { email: summary.email, plan: planDisplayName(summary.plan) } : null,
-      };
+        expiresAt: state.expiresAt,
+        lastSyncAt: state.lastSyncAt,
+        error: oauthLastError || state.error,
+        routeConfigured: state.routeConfigured,
+        account: account,
+      }
     }
 
-    // ---------- RPC 路由（webServer HTTP，JSON 进出，使用宿主认证边界） ----------
-    const ROUTE_PREFIX = '/_dsh/dsh-chatgpt-sub';
+    function migrateLegacy() {
+      if (existsSync(BIND_FILE)) return
+      if (!existsSync(OLD_BIND_FILE)) return
+      let old = null
+      try { old = JSON.parse(readFileSync(OLD_BIND_FILE, 'utf8')) } catch (err) { old = null }
+      if (old && old.bound === true) {
+        migrationNotice = { kind: 'migrated', code: 'state.migrated', message: '旧版 Codex 登录已停用。请点「绑定 ChatGPT 账号」，用官方 Sign in with ChatGPT 重新绑定一次' }
+        try { writeBindFlag({ bound: false }) } catch (err) {}
+      }
+      try { unlinkSync(OLD_BIND_FILE) } catch (err) {}
+      removeLegacyRoute().catch(function () {})
+      const service = credentials()
+      if (old && old.credentialManaged === true && service && typeof service.unset === 'function') {
+        service.unset(OLD_TOKEN_REF).catch(function () {})
+      }
+    }
+
+    const ROUTE_PREFIX = '/_dsh/dsh-chatgpt-sub'
     const ROUTES = {
-      // 设置页「版本与更新」区读的完整状态
-      getUpdateState: async function () {
-        return updateStatePayload()
-      },
-      // 检查更新（只读）：只问 npm「有没有更高的版本」，然后回报。
-      // 绝不下载、绝不替换包文件 —— 这是「检查更新」按钮唯一该做的事。
-      // 走引擎而不是读 host 的 TTL 缓存：用户点了按钮就必须真去问一次（缓存命中时那次
-      // 查询可能要等 15 分钟才过期，等于按钮什么都没干）。
+      getUpdateState: async function () { return updateStatePayload() },
       checkUpdate: async function () {
         if (selfUpdater) {
-          const state = await selfUpdater.run({ mode: 'check', manual: true })
-          if (state && typeof state.latest === 'string') { updateLatestCache.value = state.latest; updateLatestCache.expiresAt = Date.now() + updateLatestTtlMs() }
-          // 顺手把这次问到的版本灌进缓存，让信息栏与后续状态读取立刻与检查结果一致。
+          const update = await selfUpdater.run({ mode: 'check', manual: true })
+          if (update && typeof update.latest === 'string') {
+            updateLatestCache.value = update.latest
+            updateLatestCache.expiresAt = Date.now() + updateLatestTtlMs()
+          }
         }
         return updateStatePayload()
       },
-      enterUpdatePage: async function () {
-        updatePageVisited = true
-        return { deferredUntilRestart: true }
-      },
-      // 安装（唯一的写动作）：由用户在手动方式下点「更新到 X」、或点「允许更新到 X」触发。
-      // 全自动模式不需要它 —— 那条路由启动流程自己走 install。
-      // force=true 表示「我明确要装这个版本」，用于解除回滚后的暂缓（holdVersion）。
+      enterUpdatePage: async function () { updatePageVisited = true; return { deferredUntilRestart: true } },
       installUpdate: async function (args) {
         if (selfUpdater) {
           const force = !!(args && typeof args === 'object' && args.force === true)
-          const state = await selfUpdater.run({ mode: 'install', manual: true, force: force })
-          if (state && typeof state.latest === 'string') { updateLatestCache.value = state.latest; updateLatestCache.expiresAt = Date.now() + updateLatestTtlMs() }
+          const update = await selfUpdater.run({ mode: 'install', manual: true, force: force })
+          if (update && typeof update.latest === 'string') {
+            updateLatestCache.value = update.latest
+            updateLatestCache.expiresAt = Date.now() + updateLatestTtlMs()
+          }
         }
         return updateStatePayload()
       },
-      // 旧客户端页面（升级后还没重启、WebView 里仍是上一版界面）调用的老名字。
-      // 也只执行检查，绝不让旧页的「检查更新」在无确认时替换文件。
-      runUpdateCheck: async function (args) {
-        return ROUTES.checkUpdate(args)
-      },
-      // 更新方式（全自动 / 手动）。手动方式下自动流程只查不装，必须由用户点「更新到 X」。
+      runUpdateCheck: async function (args) { return ROUTES.checkUpdate(args) },
       setUpdateAuto: async function (args) {
-        if (selfUpdater) {
-          const enabled = !(args && args.enabled === false)
-          selfUpdater.setAutoUpdate(enabled)
-        }
+        if (selfUpdater) selfUpdater.setAutoUpdate(!(args && args.enabled === false))
         return updateStatePayload()
       },
-      // 回滚到最近一次更新的备份（新版启动异常时的人工兜底）。
-      // 结果里额外带回 rollback 结论：失败（没有备份 / 没有可回滚版本）必须让界面说出来，
-      // 不能点一下什么都没发生。
       rollbackUpdate: async function () {
         const result = selfUpdater ? selfUpdater.rollback() : { restored: false, reason: 'disabled' }
         return Object.assign({}, await updateStatePayload(), { rollback: result })
       },
-
-      getCodexBridgeStatus: function () { return getCodexBridgeStatusRpc(); },
-      startCodexOAuth: function (args) { return startCodexOAuthRpc(args); },
-      unbindCodex: function () { return unbindCodexRpc(); },
-    };
-    const MUTATING = { startCodexOAuth: true, unbindCodex: true, checkUpdate: true, enterUpdatePage: true, installUpdate: true, runUpdateCheck: true, setUpdateAuto: true, rollbackUpdate: true };
+      getCodexBridgeStatus: function () { return getStatusRpc() },
+      startCodexOAuth: function (args) { return startOAuthRpc(args) },
+      unbindCodex: function () { return unbindRpc() },
+    }
+    const MUTATING = { startCodexOAuth: true, unbindCodex: true, checkUpdate: true, enterUpdatePage: true, installUpdate: true, runUpdateCheck: true, setUpdateAuto: true, rollbackUpdate: true }
 
     function readBody(req, maxBytes) {
       return new Promise(function (resolve, reject) {
-        let size = 0;
-        const chunks = [];
-        req.on('data', function (c) { size += c.length; if (size > maxBytes) { reject(Object.assign(new Error('payload too large'), { status: 413 })); req.destroy(); return; } chunks.push(c); });
-        req.on('end', function () { resolve(Buffer.concat(chunks).toString('utf8')); });
-        req.on('error', reject);
-      });
+        let size = 0
+        const chunks = []
+        req.on('data', function (chunk) {
+          size += chunk.length
+          if (size > maxBytes) { reject(Object.assign(new Error('payload too large'), { status: 413 })); req.destroy(); return }
+          chunks.push(chunk)
+        })
+        req.on('end', function () { resolve(Buffer.concat(chunks).toString('utf8')) })
+        req.on('error', reject)
+      })
     }
 
     function respond(res, status, payload) {
-      res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify(payload));
+      res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
+      res.end(JSON.stringify(payload))
     }
 
-    // Do not reproduce this check from Origin headers here. The Desktop shell
-    // validates dsh-app://app, then deliberately removes renderer headers and
-    // injects its private Host cookie while forwarding to this local server.
-    // `connection.requestRejection()` is the official, shared trust boundary:
-    // Host/Origin anti-rebinding protection plus browser/desktop authentication.
     ctx.inject(['connection', 'webServer'], function (webCtx) {
       webCtx.effect(function () {
         try {
@@ -1185,43 +1073,62 @@ export default {
             path: ROUTE_PREFIX,
             handler: async function (req, res) {
               try {
-                const rejection = webCtx.connection.requestRejection(req);
+                const rejection = webCtx.connection.requestRejection(req)
                 if (rejection !== undefined) {
-                  respond(res, rejection, { error: rejection === 401 ? 'authentication required' : 'request rejected' });
-                  return;
+                  respond(res, rejection, { error: rejection === 401 ? 'authentication required' : 'request rejected' })
+                  return
                 }
-                // handler 只收 (req, res) 两参；pathname 须从 req.url 自行解析（官方 webServer 契约）
-                const url = new URL(req.url || '/', 'http://localhost');
-                const path = url.pathname;
-                if (!path.startsWith(ROUTE_PREFIX + '/')) { respond(res, 404, { error: 'not found' }); return; }
-                const method = decodeURIComponent(path.slice(ROUTE_PREFIX.length + 1));
-                if (!Object.hasOwn(ROUTES, method)) { respond(res, 404, { error: 'unknown method: ' + method }); return; }
-                if (Object.hasOwn(MUTATING, method)) {
-                  if (req.method !== 'POST') { respond(res, 405, { error: 'mutating methods require POST' }); return; }
-                }
-                let args = null;
+                const url = new URL(req.url || '/', 'http://localhost')
+                const path = url.pathname
+                if (!path.startsWith(ROUTE_PREFIX + '/')) { respond(res, 404, { error: 'not found' }); return }
+                const method = decodeURIComponent(path.slice(ROUTE_PREFIX.length + 1))
+                if (!Object.hasOwn(ROUTES, method)) { respond(res, 404, { error: 'unknown method: ' + method }); return }
+                if (Object.hasOwn(MUTATING, method) && req.method !== 'POST') { respond(res, 405, { error: 'mutating methods require POST' }); return }
+                let args = null
                 if (req.method === 'POST') {
-                  const raw = await readBody(req, 64 * 1024);
-                  if (raw.length > 0) { try { args = JSON.parse(raw); } catch (e) { respond(res, 400, { error: 'invalid JSON body' }); return; } }
+                  const raw = await readBody(req, 64 * 1024)
+                  if (raw.length > 0) { try { args = JSON.parse(raw) } catch (e) { respond(res, 400, { error: 'invalid JSON body' }); return } }
                 }
-                const result = await ROUTES[method](args);
-                respond(res, 200, result);
+                const result = await ROUTES[method](args)
+                respond(res, 200, result)
               } catch (err) {
-                const status = (err && err.status) || 500;
-                respond(res, status, { error: status === 500 ? 'internal error' : String((err && err.message) || err) });
+                const status = (err && err.status) || 500
+                respond(res, status, { error: status === 500 ? 'internal error' : String((err && err.message) || err) })
               }
             },
-          });
-          return function () { dispose(); };
+          })
+          return function () { dispose() }
         } catch (err) {
-          console.warn('[dsh-chatgpt-sub] webServer 路由注册失败', String((err && err.message) || err));
+          console.warn('[dsh-chatgpt-sub] webServer 路由注册失败', String((err && err.message) || err))
         }
-      }, 'dsh-chatgpt-sub: Web routes');
-    }, 'dsh-chatgpt-sub: Web routes');
+      }, 'dsh-chatgpt-sub: Web routes')
+    }, 'dsh-chatgpt-sub: Web routes')
 
-    // ---------- 启动即刷 + 30min 令牌看护 ----------
-    // 只有绑定标记存在时，syncCodexToken 才注册 ChatGPT 路由；未绑定状态绝不触碰用户配置。
-    syncCodexToken();
-    ctx.interval(syncCodexToken, CODEX_SYNC_INTERVAL_MS);
+    migrateLegacy()
+    ensureProxy().then(function () { return sync() })
+    ctx.interval(sync, SYNC_INTERVAL_MS)
   },
-};
+}
+
+function respondOAuthPage(res, status, key, language) {
+  const tag = typeof language === 'string' ? language.toLowerCase().replace(/_/g, '-') : 'en'
+  const selected = /^zh-(hant|tw|hk|mo)(-|$)/.test(tag) ? 'zh-hant' : tag
+  const id = Object.hasOwn(LOCALES, selected) ? selected : Object.hasOwn(LOCALES, selected.split('-')[0]) ? selected.split('-')[0] : 'en'
+  const dictionary = LOCALES[id]
+  const message = dictionary[key] || LOCALES.en[key] || dictionary['error.oauth.exception']
+  const escapeHtml = function (value) {
+    return String(value).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    })
+  }
+  const html = '<!DOCTYPE html><html lang="' + escapeHtml(id) + '"><head><meta charset="utf-8"><title>ChatGPT</title></head>' +
+    '<body style="font-family:system-ui,sans-serif;padding:3rem 2rem;text-align:center;background:#f7f7f8">' +
+    '<h2 style="color:#0d0d0d">' + escapeHtml(message) + '</h2>' +
+    '<p style="color:#555">' + escapeHtml(dictionary['oauth.hint']) + '</p></body></html>'
+  res.statusCode = status
+  res.setHeader('Content-Type', 'text/html; charset=utf-8')
+  res.setHeader('Cache-Control', 'no-store')
+  res.end(html)
+}
+
+export { respondOAuthPage }

@@ -10,13 +10,17 @@
 [![GitHub stars](https://img.shields.io/github/stars/songoao25/dsh-chatgpt-sub)](https://github.com/songoao25/dsh-chatgpt-sub/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/songoao25/dsh-chatgpt-sub)](https://github.com/songoao25/dsh-chatgpt-sub/forks)
 
-A DeepSeek Harness plugin that connects your ChatGPT account through OpenAI's sign-in page and lets you use the account's available ChatGPT models inside DSH. You need an account with Codex access and sufficient quota. The plugin does not reject Free accounts, but sign-in alone does not establish access to models in DSH; availability depends on OpenAI’s plan, client and model restrictions. See [OpenAI’s current plan information](https://learn.chatgpt.com/docs/pricing).
+A DeepSeek Harness plugin that connects your ChatGPT account through OpenAI's official **Sign in with ChatGPT** flow (ChatGPT plan usage for open-source clients) and lets you use the models available to that account inside DSH.
+
+You need an eligible **ChatGPT Plus or Pro** account and must allow this app to use your plan during sign-in. Free, Team, Enterprise and Edu plans are not part of OpenAI's current preview. If you distribute this plugin in a paid or remotely hosted product, apply through OpenAI's [interest form](https://openai.com/form/sign-in-with-chatgpt-interest/); open-source and locally hosted use follows the automatic path described in [OpenAI's SIWC documentation](https://developers.openai.com/siwc/token-sharing-open-source).
 
 ## What it does
 
-Sign in from the plugin page, then select a model under the **ChatGPT** provider. The plugin maintains the sign-in and shows account status, expiry, and **Sign in again / Unbind** actions. Available models depend on your account and DSH's model support.
+Sign in from the plugin page, then select a model under the **ChatGPT** provider. The plugin keeps the sign-in alive, shows the account and expiry, and offers **Sign in again / Unbind**.
 
-The companion [Bottom Info Bar](https://github.com/songoao25/dsh-bottom-info-bar) displays available quota windows and reset times. Both plugins can be installed independently; ChatGPT quota display needs a valid sign-in.
+Models come from the signed-in account's own catalog, so the picker reflects what that plan can actually use. The first sign-in registers this installation as an agent named **DSH ChatGPT 订阅**; you can review or revoke it in ChatGPT **Settings → Connections** (or **Settings → Usage** for per-app limits).
+
+The companion [Bottom Info Bar](https://github.com/songoao25/dsh-bottom-info-bar) reads this plugin's account registration to show the connected account, plan and expiry, and links to ChatGPT's usage page. Per-app weekly limits are managed by the user in ChatGPT settings, not by this plugin.
 
 ## Install
 
@@ -46,21 +50,21 @@ Local installs, Windows guidance, updating and troubleshooting: [docs/INSTALL.md
 
 ## Settings
 
-Open **Plugins → ChatGPT Subscription** and choose **Sign in with ChatGPT**. Complete authorization in the browser; when the page shows **Connected**, select a ChatGPT model in the conversation model picker. Allow DSH pop-ups if the authorization page does not open.
+Open **Plugins → ChatGPT Subscription** and choose **Connect ChatGPT account**. Complete authorization in the browser and allow **use ChatGPT plan**; when the page shows **Connected**, select a ChatGPT model in the conversation model picker. Allow DSH pop-ups if the authorization page does not open.
 
-The browser confirms success only after the plugin has saved the sign-in and connected it to DSH. If that fails, return to the plugin page for the error; do not share sign-in files or authorization URLs.
+The browser confirms success only after the plugin has validated the sign-in and connected it to DSH. If plan usage is declined, the binding is not saved; run it again and allow it. If that fails, return to the plugin page for the error; do not share sign-in files or authorization URLs.
 
-**Sign in again** renews the binding. **Unbind** disconnects the account from this plugin. An existing Codex CLI sign-in is not automatically adopted by the plugin.
+**Sign in again** renews the binding. **Unbind** revokes the refresh token and disconnects the account from this plugin. An existing Codex CLI sign-in is not adopted by the plugin.
 
 ## Sign-in data and updates
 
-Authorization and model requests communicate with official OpenAI endpoints. Sign-in tokens are saved in the standard local `~/.codex/auth.json` file with owner-only permissions and synchronized into DSH's credential store. Signing in can update that shared file, so it can affect which account Codex CLI uses. Tokens are transmitted to OpenAI for authorized requests; they are not written to plugin logs.
+Authorization and model requests communicate with official OpenAI endpoints. Tokens are stored in DSH's credential store under `chatgpt-sub/session` with owner-only permissions; the host identifier lives in `~/.dsh/dsh-chatgpt-sub/host-id`. The plugin does **not** read or write `~/.codex/auth.json`, so it does not change which account Codex CLI uses. Tokens are sent to OpenAI only for authorized requests and are not written to plugin logs.
 
-Unbinding and uninstalling preserve `~/.codex/auth.json` and remove the plugin's binding and managed DSH entries. The plugin refreshes sign-in automatically. Under **Version and updates**, automatic updates (default) check npm when DSH starts, verify and replace the plugin files, then take effect after a restart. Manual mode checks without installing; installation asks for confirmation. Failed updates restore the previous files, and settings offer rollback when needed. Sign-in data is preserved. Local checkout and linked installs require a code update and rebuild; see [docs/INSTALL.md](docs/INSTALL.md).
+Unbinding and uninstalling revoke and remove the plugin's route and managed credentials; the local account registration (issued client id and host id) is kept for a faster next sign-in. The plugin refreshes the sign-in automatically. Under **Version and updates**, automatic updates (default) check npm when DSH starts, verify and replace the plugin files, then take effect after a restart. Manual mode checks without installing; installation asks for confirmation. Failed updates restore the previous files, and settings offer rollback when needed. Local checkout and linked installs require a code update and rebuild; see [docs/INSTALL.md](docs/INSTALL.md).
 
 ## Uninstall and roll back
 
-Remove the plugin from the desktop app's **Plugins** page, or use `dsh plugin --profile web remove dsh-chatgpt-sub` for the CLI web profile, then restart DSH. Uninstalling keeps `~/.codex/auth.json` (the Codex CLI's own sign-in) and removes this plugin's binding and the DSH entries it manages. To go back a version instead of removing the plugin, **Version and updates** offers rollback after a failed update or while a newer build waits for a restart. Do not include sign-in files, credentials, or account details in bug reports.
+Remove the plugin from the desktop app's **Plugins** page, or use `dsh plugin --profile web remove dsh-chatgpt-sub` for the CLI web profile, then restart DSH. Uninstalling removes this plugin's route and the DSH entries it manages. To go back a version instead of removing the plugin, **Version and updates** offers rollback after a failed update or while a newer build waits for a restart. Do not include sign-in files, credentials, or account details in bug reports.
 
 ## Languages
 
