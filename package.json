@@ -1,6 +1,6 @@
 {
   "name": "dsh-chatgpt-sub",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Sign in with ChatGPT (official SIWC) to use ChatGPT plan models in DSH.",
   "keywords": [
     "deepseek-harness",

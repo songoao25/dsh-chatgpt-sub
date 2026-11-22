@@ -2,6 +2,13 @@
 
 本项目的版本记录遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.9.0](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.8.0...v0.9.0) (2026-11-22)
+
+
+### Features
+
+* adopt official Sign in with ChatGPT (SIWC) ([#69](https://github.com/songoao25/dsh-chatgpt-sub/issues/69)) ([7c5e18e](https://github.com/songoao25/dsh-chatgpt-sub/commit/7c5e18e82a70ab9b4a74294add43acb125678e8f))
+
 ## [0.8.0](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.7.0...v0.8.0) (2026-11-13)
 
 
