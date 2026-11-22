@@ -2,6 +2,13 @@
 
 本项目的版本记录遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.9.2](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.9.1...v0.9.2) (2026-11-22)
+
+
+### Bug Fixes
+
+* make Codex quota keep-alive conservative and optional ([#73](https://github.com/songoao25/dsh-chatgpt-sub/issues/73)) ([214e3d3](https://github.com/songoao25/dsh-chatgpt-sub/commit/214e3d37f08efa4ed626dd407dd556043f652cfc))
+
 ## [0.9.1](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.9.0...v0.9.1) (2026-11-22)
 
 
