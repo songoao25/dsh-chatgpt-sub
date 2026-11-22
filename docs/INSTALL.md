@@ -85,7 +85,7 @@ dsh --profile web --dump-config | grep dsh-chatgpt-sub
 
 在插件页的**版本与更新**里选择自动更新（默认）或手动更新。自动更新在 DSH 启动时检查 npm、校验并替换插件文件，重启后生效；手动检查只查询版本，安装前会弹出确认。更新失败自动恢复旧文件，需要时可以回滚；登录和绑定信息保留。设置页会显示运行版本、最新版本、上次检查时间以及是否需要重启。
 
-更新状态、日志和备份保存在本端 `DSH_HOME` 下的 `dsh-chatgpt-sub/`（默认 `~/.dsh/dsh-chatgpt-sub/`；`DSH_CHATGPT_DATA_DIR` 可覆盖）。本机标识保存在 `~/.dsh/dsh-chatgpt-sub/host-id`；插件不读写 `~/.codex/auth.json`。源码和链接安装不自动替换文件，仍按下面的方法更新；自动/手动更新都依赖 npm 上的公开版本（`dsh-chatgpt-sub` 自 0.5.1 起已公开）。
+更新状态、日志和备份保存在本端 `DSH_HOME` 下的 `dsh-chatgpt-sub/`（默认 `~/.dsh/dsh-chatgpt-sub/`；`DSH_CHATGPT_DATA_DIR` 可覆盖）。本机标识保存在 `~/.dsh/dsh-chatgpt-sub/host-id`。官方推理不使用 `~/.codex/auth.json`；但为了信息栏的额度窗口，文件已存在时插件会续期它（不创建、不改结构、不用于推理）。源码和链接安装不自动替换文件，仍按下面的方法更新；自动/手动更新都依赖 npm 上的公开版本（`dsh-chatgpt-sub` 自 0.5.1 起已公开）。
 
 ### 手动更新本地副本或迁移安装
 
@@ -143,6 +143,7 @@ dsh plugin --profile web remove dsh-chatgpt-sub
 | 授权超时（5 分钟） | 重新点「绑定 ChatGPT 账号」再试；确认浏览器完成了授权 |
 | 绑定后模型切换器无 ChatGPT | 确认绑定成功（插件页显示「已连接」）；重启 DSH 让路由注册生效 |
 | 对话报错/模型不可用 | 模型列表来自登录账号；报 `subscription_sharing_*` 时说明套餐或该应用的每周额度不包含它，见 ChatGPT 设置 → 用量 |
+| 信息栏不显示 5 小时/每周百分比 | 额度窗口需要本机 `~/.codex/auth.json`；跑一次 `codex login` 后重启 DSH。只有官方 SIWC 登录时，信息栏只显示账号/套餐/有效期 |
 | 安装报 `pnpm not found` / 「没有找到 pnpm」 | 安装 pnpm：`npm i -g pnpm` 或 `corepack enable` |
 | 想彻底移除插件影响 | 卸载 + 重启 DSH |
 

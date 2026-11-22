@@ -16,6 +16,7 @@ import {
   refreshTokens, revokeRefreshToken, verifyIdToken,
 } from './siwc.js'
 import { startResponsesProxy } from './proxy.js'
+import { keepCodexQuota } from './codex-quota.js'
 
 const UPDATE_CHECK_TIMEOUT_MS = 5000
 const UPDATE_LATEST_TTL_MS = 15 * 60 * 1000
@@ -76,6 +77,7 @@ if (!process.env.DSH_CHATGPT_DATA_DIR && existsSync(LEGACY_DATA_DIR) && !existsS
 const BIND_FILE = process.env.DSH_CHATGPT_BIND_FILE || join(DATA_DIR, 'siwc-bind.json')
 const OLD_BIND_FILE = process.env.DSH_CHATGPT_OLD_BIND_FILE || join(DATA_DIR, 'codex-bind.json')
 const HOST_ID_FILE = join(DATA_DIR, 'host-id')
+const CODEX_AUTH_FILE = process.env.DSH_CHATGPT_AUTH || join(homedir(), '.codex', 'auth.json')
 const SESSION_FILE = join(DATA_DIR, 'siwc-session.json')
 
 const PROVIDER_ID = 'chatgpt-siwc'
@@ -188,6 +190,7 @@ function parseSession(record) {
     accessToken: payload.accessToken,
     refreshToken: typeof payload.refreshToken === 'string' && payload.refreshToken.length > 0 ? payload.refreshToken : null,
     expiresAt: payload.expiresAt,
+    planExpiresAt: typeof payload.planExpiresAt === 'number' ? payload.planExpiresAt : null,
     earliestRefreshAt: typeof payload.earliestRefreshAt === 'number' ? payload.earliestRefreshAt : null,
     scopes: Array.isArray(payload.scopes) ? payload.scopes.filter(function (s) { return typeof s === 'string' }) : [],
     savedAt: typeof payload.savedAt === 'string' ? payload.savedAt : null,
@@ -322,6 +325,7 @@ export default {
     const tokenRef = { value: null, previous: null, previousAt: 0 }
     let proxy = null
     let proxyStarting = null
+    let quotaKeepInFlight = null
 
     const credentials = function () { return ctx.credentials || ctx.get('credentials') }
     const settings = function () { return ctx.settings || ctx.get('settings') }
@@ -539,6 +543,7 @@ export default {
               if (account.subject) next.subject = account.subject
               if (account.email) next.email = account.email
               if (account.plan) next.plan = account.plan
+              if (account.planExpiresAt) next.planExpiresAt = account.planExpiresAt
             }
             outcome = { ok: true, session: next }
             return sessionToRecord(next)
@@ -611,7 +616,7 @@ export default {
         }
         state.ok = false
         state.lastSyncAt = now
-        state.expiresAt = session.expiresAt
+        state.expiresAt = session.planExpiresAt
         state.error = { kind: 'auth', code: 'token.refresh-failed', message: '自动续期失败，稍后会自动再试一次' }
         return
       }
@@ -620,7 +625,7 @@ export default {
       if (!hasPlanUsage(active.scopes)) {
         state.ok = false
         state.lastSyncAt = now
-        state.expiresAt = active.expiresAt
+        state.expiresAt = active.planExpiresAt
         state.error = { kind: 'plan', code: 'token.plan-usage-missing', message: '这次登录没有允许使用 ChatGPT 套餐额度，请在插件页重新绑定并允许' }
         return
       }
@@ -628,7 +633,7 @@ export default {
       if (!(await injectToken(active.accessToken))) {
         state.ok = false
         state.lastSyncAt = now
-        state.expiresAt = active.expiresAt
+        state.expiresAt = active.planExpiresAt
         state.error = { kind: 'credentials', code: 'credentials.sync-failed', message: '登录信息同步到 DSH 失败，请重试或重新绑定' }
         return
       }
@@ -646,7 +651,7 @@ export default {
       if (!route.ok) {
         state.ok = false
         state.lastSyncAt = now
-        state.expiresAt = active.expiresAt
+        state.expiresAt = active.planExpiresAt
         state.routeConfigured = false
         state.error = { kind: 'route', code: route.code || 'route.unknown', message: route.message }
         return
@@ -654,9 +659,17 @@ export default {
 
       state.ok = true
       state.lastSyncAt = now
-      state.expiresAt = active.expiresAt
+      state.expiresAt = active.planExpiresAt
       state.routeConfigured = true
       state.error = null
+
+      // 可选的额度通道：只续期本机已有的 Codex 登录文件，不创建、不参与推理。
+      // 信息栏用它查 /backend-api/wham/usage；文件不存在时模块直接返回。
+      if (!quotaKeepInFlight) {
+        quotaKeepInFlight = keepCodexQuota(CODEX_AUTH_FILE, {
+          log: function (message) { try { console.warn('[dsh-chatgpt-sub] ' + message) } catch (err) {} },
+        }).catch(function () { return null }).finally(function () { quotaKeepInFlight = null })
+      }
     }
 
     function sync() {
@@ -817,6 +830,7 @@ export default {
           subject: account.subject || claims.sub,
           email: account.email,
           plan: account.plan,
+          planExpiresAt: account.planExpiresAt,
           idToken: exchanged.tokens.idToken,
           accessToken: exchanged.tokens.accessToken,
           refreshToken: exchanged.tokens.refreshToken,
@@ -877,7 +891,7 @@ export default {
         })
         state.ok = true
         state.lastSyncAt = Date.now()
-        state.expiresAt = session.expiresAt
+        state.expiresAt = session.planExpiresAt
         state.routeConfigured = true
         state.error = defaultModelWarning
         oauthLastError = null

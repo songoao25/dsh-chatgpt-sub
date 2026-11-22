@@ -19,6 +19,7 @@ const files = [
   'test-release-chain.mjs',
   'test-source-guards.mjs',
   'test-siwc-host.mjs',
+  'test-codex-quota.mjs',
   'test-siwc-flow.mjs',
 ]
 
