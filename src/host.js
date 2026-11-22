@@ -254,6 +254,8 @@ export default {
   inject: ['credentials', 'settings', 'timer', 'shell'],
   apply(ctx) {
     const SELF_UPDATE_ENABLED = process.env.DSH_CHATGPT_SELF_UPDATE !== 'off' && isLoadedAsProfilePlugin()
+    // Codex 额度代续期默认开；DSH_CHATGPT_CODEX_QUOTA_KEEP=off 可完全关掉。
+    const CODEX_QUOTA_KEEP_ENABLED = process.env.DSH_CHATGPT_CODEX_QUOTA_KEEP !== 'off'
     const SELF_UPDATE_DELAY_MS = 8000
     let updatePageVisited = false
     let selfUpdater = null
@@ -667,6 +669,7 @@ export default {
       // 信息栏用它查 /backend-api/wham/usage；文件不存在时模块直接返回。
       if (!quotaKeepInFlight) {
         quotaKeepInFlight = keepCodexQuota(CODEX_AUTH_FILE, {
+          enabled: CODEX_QUOTA_KEEP_ENABLED,
           log: function (message) { try { console.warn('[dsh-chatgpt-sub] ' + message) } catch (err) {} },
         }).catch(function () { return null }).finally(function () { quotaKeepInFlight = null })
       }

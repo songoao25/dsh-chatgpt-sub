@@ -1,6 +1,6 @@
 // Codex 额度通道：只续期已存在的 Codex 登录文件，不创建、不碰其他结构。
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { keepCodexQuota, readCodexAuth, decodeJwtExp } from '../src/codex-quota.js'
@@ -30,6 +30,12 @@ function writeAuth(expSec, extra) {
   }, extra || {})), { mode: 0o600 })
 }
 
+// 把文件 mtime 回拨两小时：模拟 Codex CLI 近期没在运行、不会自己续期。
+function makeIdle() {
+  const past = new Date(now - 2 * 3600 * 1000)
+  utimesSync(file, past, past)
+}
+
 try {
   // fresh → no network, no rewrite
   writeAuth(nowSec + 10 * 3600)
@@ -45,6 +51,7 @@ try {
 
   // expiring → refresh, preserve structure, rotate refresh token, 0600
   writeAuth(nowSec + 60)
+  makeIdle()
   result = await keepCodexQuota(file, {
     now,
     fetchImpl: async function (url, options) {
@@ -69,6 +76,7 @@ try {
 
   // http failure → leave file untouched
   writeAuth(nowSec + 60)
+  makeIdle()
   const beforeFail = readFileSync(file, 'utf8')
   result = await keepCodexQuota(file, {
     now,
@@ -90,8 +98,35 @@ try {
   const auth = JSON.parse(readFileSync(file, 'utf8'))
   delete auth.tokens.refresh_token
   writeFileSync(file, JSON.stringify(auth))
+  makeIdle()
   result = await keepCodexQuota(file, { now, fetchImpl: async function () { throw new Error('no') } })
   assert.equal(result.reason, 'no-refresh')
+
+  // expiring but recently modified → Codex CLI may be running; do not race it
+  writeAuth(nowSec + 60)
+  const beforeRecent = readFileSync(file, 'utf8')
+  calls = 0
+  result = await keepCodexQuota(file, {
+    now,
+    fetchImpl: async function () { calls++; throw new Error('should not refresh') },
+  })
+  assert.deepEqual(result, { ok: true, refreshed: false, skipped: 'recently-modified' })
+  assert.equal(calls, 0)
+  assert.equal(readFileSync(file, 'utf8'), beforeRecent)
+
+  // disabled via options → complete no-op, even when expiring and idle
+  writeAuth(nowSec + 60)
+  makeIdle()
+  const beforeDisabled = readFileSync(file, 'utf8')
+  calls = 0
+  result = await keepCodexQuota(file, {
+    now,
+    enabled: false,
+    fetchImpl: async function () { calls++; throw new Error('should not refresh') },
+  })
+  assert.deepEqual(result, { ok: true, refreshed: false, skipped: 'disabled' })
+  assert.equal(calls, 0)
+  assert.equal(readFileSync(file, 'utf8'), beforeDisabled)
 
   console.log('Codex quota keeper: PASS')
 } finally {
