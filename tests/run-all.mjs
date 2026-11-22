@@ -18,7 +18,8 @@ const files = [
   'test-install-docs.mjs',
   'test-release-chain.mjs',
   'test-source-guards.mjs',
-  'test-codex-host.js',
+  'test-siwc-host.mjs',
+  'test-siwc-flow.mjs',
 ]
 
 let allPass = true

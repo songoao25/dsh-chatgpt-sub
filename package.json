@@ -1,15 +1,16 @@
 {
   "name": "dsh-chatgpt-sub",
   "version": "0.8.0",
-  "description": "Sign in with your ChatGPT account to use ChatGPT models in DSH.",
+  "description": "Sign in with ChatGPT (official SIWC) to use ChatGPT plan models in DSH.",
   "keywords": [
     "deepseek-harness",
     "dsh",
     "chatgpt",
-    "codex",
     "subscription",
-    "oauth",
-    "plugin"
+    "plugin",
+    "sign-in-with-chatgpt",
+    "siwc",
+    "chatgpt-plan"
   ],
   "repository": {
     "type": "git",

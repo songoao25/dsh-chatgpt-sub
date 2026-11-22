@@ -4,7 +4,7 @@
 
 - 已安装 DeepSeek Harness —— **桌面端客户端**，或命令行启动的 CLI profile（`dsh web`）
 - 已安装 [pnpm](https://pnpm.io/)（`dsh plugin` 与插件页的安装框都依赖它）
-- ChatGPT 账号具备 Codex 使用权限及可用额度。插件不按免费或付费套餐阻止登录，但 OpenAI 对套餐、客户端和模型的限制仍适用；官方 Codex 可用不代表第三方 DSH 一定可用，见 [当前套餐说明](https://learn.chatgpt.com/docs/pricing)。
+- ChatGPT Plus 或 Pro 账号，并在登录时允许本应用使用套餐额度。Free、Team、Enterprise、Edu 不在 OpenAI 当前预览范围内；收费或托管分发需走 OpenAI 的申请流程，见 [SIWC 文档](https://developers.openai.com/siwc/token-sharing-open-source)。
 
 ## 安装
 
@@ -75,7 +75,7 @@ dsh --profile web --dump-config | grep dsh-chatgpt-sub
 
 1. 打开 DSH **插件** 页 → 进入 **ChatGPT 订阅**。
 2. 点「**绑定 ChatGPT 账号**」→ 浏览器打开 OpenAI 官方授权页。
-3. 用 ChatGPT 账号登录并同意；插件页显示「已连接」即完成。
+3. 用 ChatGPT 账号登录，并允许**使用 ChatGPT 套餐额度**；插件页显示「已连接」即完成。拒绝套餐额度时这次绑定不会保存。
 4. 新建对话，在模型切换器选择提供商 **ChatGPT** 的模型（如 `gpt-5.6-terra`）对话。
 
 > 若浏览器未自动打开，请允许 DSH 弹窗（页面会以 `window.open` 兜底）。
@@ -85,7 +85,7 @@ dsh --profile web --dump-config | grep dsh-chatgpt-sub
 
 在插件页的**版本与更新**里选择自动更新（默认）或手动更新。自动更新在 DSH 启动时检查 npm、校验并替换插件文件，重启后生效；手动检查只查询版本，安装前会弹出确认。更新失败自动恢复旧文件，需要时可以回滚；登录和绑定信息保留。设置页会显示运行版本、最新版本、上次检查时间以及是否需要重启。
 
-更新状态、日志和备份保存在本端 `DSH_HOME` 下的 `dsh-chatgpt-sub/`（默认 `~/.dsh/dsh-chatgpt-sub/`；`DSH_CHATGPT_DATA_DIR` 可覆盖）。共享 Codex 登录文件及已有绑定标记位置保持原样。源码和链接安装不自动替换文件，仍按下面的方法更新；自动/手动更新都依赖 npm 上的公开版本（`dsh-chatgpt-sub` 自 0.5.1 起已公开）。
+更新状态、日志和备份保存在本端 `DSH_HOME` 下的 `dsh-chatgpt-sub/`（默认 `~/.dsh/dsh-chatgpt-sub/`；`DSH_CHATGPT_DATA_DIR` 可覆盖）。本机标识保存在 `~/.dsh/dsh-chatgpt-sub/host-id`；插件不读写 `~/.codex/auth.json`。源码和链接安装不自动替换文件，仍按下面的方法更新；自动/手动更新都依赖 npm 上的公开版本（`dsh-chatgpt-sub` 自 0.5.1 起已公开）。
 
 ### 手动更新本地副本或迁移安装
 
@@ -119,7 +119,7 @@ cd dsh-chatgpt-sub
 dsh plugin --profile web remove dsh-chatgpt-sub
 ```
 
-卸载会清理：profile 插件条目、`llm-pi-ai.providers.openai-codex` 路由配置、`OPENAI_CODEX_API_KEY` 凭据、绑定标记目录。**保留** `~/.codex/auth.json`（codex CLI 自己的登录态）。重启后模型切换器的 ChatGPT 提供商自动消失。
+卸载会清理：profile 插件条目、`llm-pi-ai.providers.chatgpt-siwc` 路由配置、`CHATGPT_SIWC_TOKEN` 凭据、会话记录。`~/.dsh/dsh-chatgpt-sub/` 里的 host id 与账号注册信息会保留，下次登录更快；删掉它等同于全新安装。重启后模型切换器的 ChatGPT 提供商自动消失。
 
 ## 与联网搜索的关系
 
@@ -139,13 +139,13 @@ dsh plugin --profile web remove dsh-chatgpt-sub
 | 命令行报 `profile "desktop" is managed exclusively by the Electron application` | 桌面端客户端的 profile 不能用 CLI 改：请在客户端 **插件 → 添加插件** 里安装/卸载 |
 | 浏览器授权后仍未连接 | 更新插件并由你自行重启 DSH 后重试。浏览器的成功提示只在 DSH 连接完成后出现；若失败，返回插件页记录错误文字，并提供 DSH 版本、插件运行版本及 Windows 版本。不要上传登录文件、完整授权网址或账号资料 |
 | 点绑定没反应/浏览器没打开 | ① 检查是否允许 DSH 弹窗；② 重启 DSH 后再试 |
-| 提示「回调端口被占用」 | 端口 1455 被其他程序占用（如正在运行的 codex 登录流程），关闭占用程序后重试 |
+| 提示「本地 ChatGPT 通道没起来」 | 插件启动时本地规范化代理没有监听成功，重启 DSH 后再试；仍失败请附 DSH 版本与插件版本反馈 |
 | 授权超时（5 分钟） | 重新点「绑定 ChatGPT 账号」再试；确认浏览器完成了授权 |
 | 绑定后模型切换器无 ChatGPT | 确认绑定成功（插件页显示「已连接」）；重启 DSH 让路由注册生效 |
-| 对话报错/模型不可用 | 可用模型以套餐为准（如 `gpt-5.3-codex-spark` 需更高计划）；检查订阅额度 |
+| 对话报错/模型不可用 | 模型列表来自登录账号；报 `subscription_sharing_*` 时说明套餐或该应用的每周额度不包含它，见 ChatGPT 设置 → 用量 |
 | 安装报 `pnpm not found` / 「没有找到 pnpm」 | 安装 pnpm：`npm i -g pnpm` 或 `corepack enable` |
 | 想彻底移除插件影响 | 卸载 + 重启 DSH |
 
 ## 与其他插件的关系
 
-- **[Bottom Info Bar](https://github.com/SONGOAO25/dsh-bottom-info-bar)**：信息栏插件只读本插件维护的登录信息，在底部信息栏显示可读取的 ChatGPT 额度窗口与重置时间。两者可独立安装；信息栏的 ChatGPT 额度显示需要本插件先绑定。
+- **[Bottom Info Bar](https://github.com/SONGOAO25/dsh-bottom-info-bar)**：信息栏插件读取本插件保存的账号注册信息，显示已连接账号、套餐与有效期，并提供 ChatGPT 用量页入口。按应用的每周额度由 ChatGPT 设置管理；两者可独立安装，信息栏的 ChatGPT 区域需要本插件先绑定。
