@@ -20,7 +20,7 @@ Sign in from the plugin page, then select a model under the **ChatGPT** provider
 
 Models come from the signed-in account's own catalog, so the picker reflects what that plan can actually use. The first sign-in registers this installation as an agent named **DSH ChatGPT 订阅**; you can review or revoke it in ChatGPT **Settings → Connections** (or **Settings → Usage** for per-app limits).
 
-The companion [Bottom Info Bar](https://github.com/songoao25/dsh-bottom-info-bar) reads this plugin's account registration to show the connected account, plan and expiry, and links to ChatGPT's usage page. Per-app weekly limits are managed by the user in ChatGPT settings, not by this plugin.
+The companion [Bottom Info Bar](https://github.com/songoao25/dsh-bottom-info-bar) reads this plugin's account registration and, when a Codex login file exists on the machine, queries the Codex usage endpoint for 5-hour / weekly / monthly windows. If no Codex login exists, it shows the connected account, plan and expiry and links to ChatGPT's usage page. Per-app weekly limits are managed by the user in ChatGPT settings, not by this plugin.
 
 ## Install
 
@@ -58,7 +58,7 @@ The browser confirms success only after the plugin has validated the sign-in and
 
 ## Sign-in data and updates
 
-Authorization and model requests communicate with official OpenAI endpoints. Tokens are stored in DSH's credential store under `chatgpt-sub/session` with owner-only permissions; the host identifier lives in `~/.dsh/dsh-chatgpt-sub/host-id`. The plugin does **not** read or write `~/.codex/auth.json`, so it does not change which account Codex CLI uses. Tokens are sent to OpenAI only for authorized requests and are not written to plugin logs.
+Authorization and model requests communicate with official OpenAI endpoints. Tokens are stored in DSH's credential store under `chatgpt-sub/session` with owner-only permissions; the host identifier lives in `~/.dsh/dsh-chatgpt-sub/host-id`. Official inference never uses `~/.codex/auth.json`. For numeric quota windows, the plugin reuses and refreshes an **existing** Codex login file when present, preserving its structure; it never creates that file and never routes inference through it. If the file is absent, the info bar shows account/plan/expiry only, and running `codex login` once enables the windows. Tokens are sent to OpenAI only for authorized requests and are not written to plugin logs.
 
 Unbinding and uninstalling revoke and remove the plugin's route and managed credentials; the local account registration (issued client id and host id) is kept for a faster next sign-in. The plugin refreshes the sign-in automatically. Under **Version and updates**, automatic updates (default) check npm when DSH starts, verify and replace the plugin files, then take effect after a restart. Manual mode checks without installing; installation asks for confirmation. Failed updates restore the previous files, and settings offer rollback when needed. Local checkout and linked installs require a code update and rebuild; see [docs/INSTALL.md](docs/INSTALL.md).
 

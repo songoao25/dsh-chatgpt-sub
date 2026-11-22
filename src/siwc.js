@@ -256,12 +256,22 @@ export async function verifyIdToken(idToken, options, deps) {
 // 账号展示信息：邮箱与套餐都从 ID token 读；读不到就是 null，不猜。
 export function accountFromIdToken(idToken) {
   const claims = decodeJwtPayload(idToken)
-  if (!claims) return { subject: null, email: null, plan: null }
+  if (!claims) return { subject: null, email: null, plan: null, planExpiresAt: null }
   const auth = isObject(claims['https://api.openai.com/auth']) ? claims['https://api.openai.com/auth'] : {}
+  const plan = isNonEmptyString(auth.chatgpt_plan_type) ? auth.chatgpt_plan_type
+    : isNonEmptyString(claims.chatgpt_plan_type) ? claims.chatgpt_plan_type : null
+  const activeUntil = isNonEmptyString(auth.chatgpt_subscription_active_until) ? auth.chatgpt_subscription_active_until
+    : isNonEmptyString(claims.chatgpt_subscription_active_until) ? claims.chatgpt_subscription_active_until : null
+  let planExpiresAt = null
+  if (activeUntil) {
+    const parsed = Date.parse(activeUntil)
+    if (isFinite(parsed)) planExpiresAt = parsed
+  }
   return {
     subject: isNonEmptyString(claims.sub) ? claims.sub : null,
     email: isNonEmptyString(claims.email) ? claims.email : null,
-    plan: isNonEmptyString(auth.chatgpt_plan_type) ? auth.chatgpt_plan_type : null,
+    plan: plan,
+    planExpiresAt: planExpiresAt,
   }
 }
 

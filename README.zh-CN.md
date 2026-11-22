@@ -20,7 +20,7 @@
 
 模型列表来自登录账号自己的目录，选择器里就是该套餐实际可用的模型。首次登录会把本机注册成一个名为 **DSH ChatGPT 订阅** 的 agent；可以在 ChatGPT 的 **设置 → 连接** 里查看或断开，在 **设置 → 用量** 里给单个应用设每周上限。
 
-配套的[底部信息栏](https://github.com/songoao25/dsh-bottom-info-bar)读取本插件的账号注册信息，显示已连接账号、套餐与有效期，并提供 ChatGPT 用量页入口。按应用的每周限额由用户在 ChatGPT 设置里管理，不由本插件代管。
+配套的[底部信息栏](https://github.com/songoao25/dsh-bottom-info-bar)读取本插件的账号注册信息；如果本机存在 Codex 登录文件，还会查询 Codex 用量接口，显示 5 小时 / 每周 / 月度窗口。没有 Codex 登录时只显示账号、套餐与有效期，并提供 ChatGPT 用量页入口。按应用的每周限额由用户在 ChatGPT 设置里管理，不由本插件代管。
 
 ## 安装
 
@@ -58,7 +58,7 @@ https://github.com/SONGOAO25/dsh-chatgpt-sub
 
 ## 登录信息与更新
 
-授权和模型请求与 OpenAI 官方服务通信。登录信息保存在 DSH 凭据库的 `chatgpt-sub/session` 记录里，只有文件所有者可读写；本机标识保存在 `~/.dsh/dsh-chatgpt-sub/host-id`。插件**不会读写** `~/.codex/auth.json`，因此不会改变 Codex CLI 使用的账号。登录信息只会随授权请求发给 OpenAI，不写入插件日志。
+授权和模型请求与 OpenAI 官方服务通信。登录信息保存在 DSH 凭据库的 `chatgpt-sub/session` 记录里，只有文件所有者可读写；本机标识保存在 `~/.dsh/dsh-chatgpt-sub/host-id`。官方推理**不会使用** `~/.codex/auth.json`。为了显示额度窗口，插件只在文件**已存在**时复用并续期它，保留原有结构；不会创建这个文件，也不会让推理走它。文件不存在时信息栏只显示账号/套餐/有效期，跑一次 `codex login` 即可启用额度窗口。登录信息只会随授权请求发给 OpenAI，不写入插件日志。
 
 解绑和卸载会撤销并删除本插件的路由和它管理的凭据；本机保存的账号注册信息（颁发的 client id 与 host id）会保留，方便下次更快登录。插件自动续期登录。**版本与更新**中，自动更新（默认）在 DSH 启动时检查 npm，校验并替换插件文件，重启后生效；手动模式只检查，安装前需要确认。更新失败会恢复旧文件，需要时可在设置中回滚。本地副本和链接安装需要更新代码并重新构建，见 [docs/INSTALL.md](docs/INSTALL.md)。
 
