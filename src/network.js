@@ -17,6 +17,7 @@
 //   refused        连接被拒绝（代理端口没起最常见）
 //   unreachable    网络不可达
 //   proxy-reset    加密握手完成前连接被断开（代理重启、切节点、链路被掐）
+//   tls            证书校验失败（代理拦截 HTTPS 时最常见）
 //   http           拿到了响应，但状态码不对
 //   empty          请求成功，但内容是空的
 //   unknown        认不出来的失败
@@ -30,6 +31,25 @@ const REGION_BLOCK_CODES = ['unsupported_country_region_territory']
 const PROXY_RESET_MARKERS = [
   'before secure tls connection was established',
   'other side closed',
+]
+
+// 超时不只来自 AbortSignal：宿主没给信号时，undici 自己有连接/响应头/响应体
+// 三档超时码，系统层还有 ETIMEDOUT。只认 TimeoutError/AbortError 名字会把
+// 这类超时漏成 unknown，用户就分不出「慢」和「断」。
+const TIMEOUT_CODES = ['ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT']
+
+// 证书校验失败：Node 与 undici 抛出的证书类错误码。这个插件的用户大量走
+// 本地代理，代理拦截 HTTPS 时用的自签 CA 不被信任是真实高频现场；归成
+// unknown 只会让用户看到一句「认不出来的失败」，无从下手。
+const TLS_CODES = [
+  'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+  'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',
+  'UNABLE_TO_GET_ISSUER_CERT',
+  'CERT_HAS_EXPIRED',
+  'CERT_NOT_YET_VALID',
+  'DEPTH_ZERO_SELF_SIGNED_CERT',
+  'SELF_SIGNED_CERT_IN_CHAIN',
+  'ERR_TLS_CERT_ALTNAME_INVALID',
 ]
 
 function errorCode(error) {
@@ -62,7 +82,11 @@ export function classifyNetworkError(error) {
   const messages = chain.map(function (item) {
     return item && typeof item.message === 'string' ? item.message.toLowerCase() : ''
   })
-  if (codes.some(function (code) { return code === 'ENOTFOUND' || code === 'EAI_AGAIN' || code === 'EAI_NODATA' })) return { reason: 'dns' }
+  if (codes.some(function (code) { return TIMEOUT_CODES.includes(code) })) return { reason: 'timeout' }
+  if (codes.some(function (code) { return TLS_CODES.includes(code) })) return { reason: 'tls' }
+  // EAI_NONAME 是 musl（Alpine）解析器的「解析失败」码，与 glibc 的
+  // ENOTFOUND/EAI_NODATA 同义；漏了它，Alpine 容器里的 DNS 失败会掉进 unknown。
+  if (codes.some(function (code) { return code === 'ENOTFOUND' || code === 'EAI_AGAIN' || code === 'EAI_NODATA' || code === 'EAI_NONAME' })) return { reason: 'dns' }
   if (messages.some(function (message) { return message.includes('getaddrinfo') })) return { reason: 'dns' }
   if (codes.some(function (code) { return code === 'ECONNREFUSED' })) return { reason: 'refused' }
   if (codes.some(function (code) { return code === 'ENETUNREACH' || code === 'EHOSTUNREACH' || code === 'ENETDOWN' })) return { reason: 'unreachable' }

@@ -23,13 +23,14 @@ const MAX_BODY_BYTES = 48 * 1024 * 1024
 // 上游连不上时，代理把失败原因一并带给调用方。
 // 以前这里只回一句「Could not reach ChatGPT」，调用方（DSH 的模型适配器）无从
 // 区分是 DNS 不通、代理端口没起还是握手被掐断，用户只能自己猜。
-// reason 取值与 src/network.js 一致（timeout / dns / refused / unreachable / proxy-reset / unknown）。
+// reason 取值与 src/network.js 一致（timeout / dns / refused / unreachable / proxy-reset / tls / unknown）。
 const UPSTREAM_MESSAGES = {
   timeout: 'Timed out reaching ChatGPT',
   dns: 'The ChatGPT domain name did not resolve',
   refused: 'The connection to ChatGPT was refused',
   unreachable: 'The network to ChatGPT is unreachable',
   'proxy-reset': 'The connection to ChatGPT was closed before the encrypted handshake finished',
+  tls: 'Certificate verification failed for the connection to ChatGPT',
 }
 
 function sendJson(res, status, payload) {

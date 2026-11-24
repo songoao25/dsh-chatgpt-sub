@@ -56,6 +56,30 @@ assert.deepEqual(
   { reason: 'proxy-reset' },
 )
 
+// 超时不只来自 AbortSignal：undici 自己的三档超时码与系统 ETIMEDOUT 也必须认得出，
+// 否则宿主没给信号时超时会掉进 unknown。真码同样可能藏在 cause 链里。
+assert.deepEqual(classifyNetworkError({ code: 'ETIMEDOUT', message: 'connect ETIMEDOUT' }), { reason: 'timeout' })
+assert.deepEqual(classifyNetworkError({ code: 'UND_ERR_CONNECT_TIMEOUT' }), { reason: 'timeout' })
+assert.deepEqual(classifyNetworkError({ code: 'UND_ERR_HEADERS_TIMEOUT' }), { reason: 'timeout' })
+assert.deepEqual(classifyNetworkError({ code: 'UND_ERR_BODY_TIMEOUT' }), { reason: 'timeout' })
+const undiciConnectTimeout = new TypeError('fetch failed')
+undiciConnectTimeout.cause = Object.assign(new Error('Connect Timeout Error'), { code: 'UND_ERR_CONNECT_TIMEOUT' })
+assert.deepEqual(classifyNetworkError(undiciConnectTimeout), { reason: 'timeout' })
+
+// 证书校验失败：代理拦截 HTTPS 时自签 CA 不被信任是高频现场，必须单独成类，
+// 不能掉进 unknown。覆盖 Node 的典型证书码与 undici 的 cause 链形状。
+assert.deepEqual(classifyNetworkError({ code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' }), { reason: 'tls' })
+assert.deepEqual(classifyNetworkError({ code: 'CERT_HAS_EXPIRED' }), { reason: 'tls' })
+assert.deepEqual(classifyNetworkError({ code: 'ERR_TLS_CERT_ALTNAME_INVALID' }), { reason: 'tls' })
+assert.deepEqual(classifyNetworkError({ code: 'DEPTH_ZERO_SELF_SIGNED_CERT' }), { reason: 'tls' })
+assert.deepEqual(classifyNetworkError({ code: 'SELF_SIGNED_CERT_IN_CHAIN' }), { reason: 'tls' })
+const undiciTls = new TypeError('fetch failed')
+undiciTls.cause = Object.assign(new Error('unable to verify the first certificate'), { code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' })
+assert.deepEqual(classifyNetworkError(undiciTls), { reason: 'tls' })
+
+// musl（Alpine）的解析失败码 EAI_NONAME 与 glibc 的 ENOTFOUND 同义。
+assert.deepEqual(classifyNetworkError({ code: 'EAI_NONAME', message: 'getaddrinfo EAI_NONAME auth.openai.com' }), { reason: 'dns' })
+
 // ---------- 2. HTTP 失败分类 ----------
 assert.deepEqual(
   classifyHttpFailure(403, { error: { code: 'unsupported_country_region_territory' } }),
@@ -89,6 +113,8 @@ assert.deepEqual(modelsFailure(null), { code: 'models.network', params: null })
 assert.deepEqual(modelsFailure({ reason: 'empty', status: 200 }), { code: 'models.empty', params: null })
 assert.deepEqual(modelsFailure({ reason: 'proxy-reset' }), { code: 'models.proxy-reset', params: null })
 assert.deepEqual(exchangeFailure({ reason: 'proxy-reset' }), { code: 'oauth.exchange-proxy-reset', params: null })
+assert.deepEqual(exchangeFailure({ reason: 'tls' }), { code: 'oauth.exchange-tls', params: null })
+assert.deepEqual(modelsFailure({ reason: 'tls' }), { code: 'models.tls', params: null })
 
 assert.deepEqual(idTokenFailure({ reason: 'timeout' }), { code: 'oauth.id-token-timeout', params: null })
 assert.deepEqual(idTokenFailure({ reason: 'http', status: 500 }), { code: 'oauth.id-token-http', params: { status: 500 } })
@@ -96,6 +122,7 @@ assert.deepEqual(idTokenFailure({ reason: 'dns' }), { code: 'oauth.id-token-dns'
 assert.deepEqual(idTokenFailure({ reason: 'refused' }), { code: 'oauth.id-token-refused', params: null })
 assert.deepEqual(idTokenFailure({ reason: 'unreachable' }), { code: 'oauth.id-token-unreachable', params: null })
 assert.deepEqual(idTokenFailure({ reason: 'proxy-reset' }), { code: 'oauth.id-token-proxy-reset', params: null })
+assert.deepEqual(idTokenFailure({ reason: 'tls' }), { code: 'oauth.id-token-tls', params: null })
 assert.deepEqual(idTokenFailure({ reason: 'unknown' }), { code: 'oauth.id-token-network', params: null })
 assert.deepEqual(idTokenFailure(null), { code: 'oauth.id-token-invalid', params: null })
 
@@ -105,12 +132,13 @@ assert.deepEqual(refreshFailure({ reason: 'dns' }), { code: 'token.refresh-dns',
 assert.deepEqual(refreshFailure({ reason: 'refused' }), { code: 'token.refresh-refused', params: null })
 assert.deepEqual(refreshFailure({ reason: 'unreachable' }), { code: 'token.refresh-unreachable', params: null })
 assert.deepEqual(refreshFailure({ reason: 'proxy-reset' }), { code: 'token.refresh-proxy-reset', params: null })
+assert.deepEqual(refreshFailure({ reason: 'tls' }), { code: 'token.refresh-tls', params: null })
 assert.deepEqual(refreshFailure({ reason: 'http', status: 503 }), { code: 'token.refresh-http', params: { status: 503 } })
 assert.equal(refreshFailure({ reason: 'unknown' }), null)
 assert.equal(refreshFailure(null), null)
 
 // ---------- 4. 每个错误码在 13 种语言里都有文案 ----------
-const reasons = ['region-blocked', 'timeout', 'dns', 'refused', 'unreachable', 'proxy-reset', 'http', 'unknown']
+const reasons = ['region-blocked', 'timeout', 'dns', 'refused', 'unreachable', 'proxy-reset', 'tls', 'http', 'unknown']
 const codes = []
 for (const reason of reasons) codes.push(exchangeFailure({ reason, status: 500 }).code)
 for (const reason of reasons) codes.push(modelsFailure({ reason, status: 500 }).code)
