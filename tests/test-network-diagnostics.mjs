@@ -55,6 +55,23 @@ assert.deepEqual(
   classifyNetworkError({ code: 'UND_ERR_SOCKET', message: 'other side closed' }),
   { reason: 'proxy-reset' },
 )
+// UND_ERR_CLOSED / ECONNABORTED 与 ECONNRESET 同类：连接在完成前被关闭。
+assert.deepEqual(classifyNetworkError({ code: 'UND_ERR_CLOSED' }), { reason: 'unreachable' })
+assert.deepEqual(classifyNetworkError({ code: 'ECONNABORTED' }), { reason: 'unreachable' })
+
+// 握手说不上话但不属于证书校验：代理端口配成明文端口、或代理改写了记录层。
+assert.deepEqual(classifyNetworkError({ code: 'ERR_SSL_WRONG_VERSION_NUMBER' }), { reason: 'tls' })
+assert.deepEqual(classifyNetworkError({ code: 'ERR_SSL_PACKET_LENGTH_TOO_LONG' }), { reason: 'tls' })
+// EPROTO 是通用协议错误：只有消息里点明 SSL/TLS/记录层时才当成握手问题。
+assert.deepEqual(
+  classifyNetworkError({ code: 'EPROTO', message: 'error:0A00010B:SSL routines::wrong version number' }),
+  { reason: 'tls' },
+)
+assert.deepEqual(classifyNetworkError({ code: 'EPROTO', message: 'protocol error' }), { reason: 'unknown' })
+assert.deepEqual(
+  classifyNetworkError({ code: 'UND_ERR_CLOSED', message: 'other side closed' }),
+  { reason: 'proxy-reset' },
+)
 
 // 超时不只来自 AbortSignal：undici 自己的三档超时码与系统 ETIMEDOUT 也必须认得出，
 // 否则宿主没给信号时超时会掉进 unknown。真码同样可能藏在 cause 链里。
@@ -65,6 +82,10 @@ assert.deepEqual(classifyNetworkError({ code: 'UND_ERR_BODY_TIMEOUT' }), { reaso
 const undiciConnectTimeout = new TypeError('fetch failed')
 undiciConnectTimeout.cause = Object.assign(new Error('Connect Timeout Error'), { code: 'UND_ERR_CONNECT_TIMEOUT' })
 assert.deepEqual(classifyNetworkError(undiciConnectTimeout), { reason: 'timeout' })
+// Node 自己的建连超时（happy-eyeballs 试完全部地址）与 TLS 握手超时同样是「卡住」，
+// 常见于域名先解析出 IPv6、机器却只有 IPv4 出网：不能掉进 unknown。
+assert.deepEqual(classifyNetworkError({ code: 'ERR_SOCKET_CONNECTION_TIMEOUT' }), { reason: 'timeout' })
+assert.deepEqual(classifyNetworkError({ code: 'ERR_TLS_HANDSHAKE_TIMEOUT' }), { reason: 'timeout' })
 
 // 证书校验失败：代理拦截 HTTPS 时自签 CA 不被信任是高频现场，必须单独成类，
 // 不能掉进 unknown。覆盖 Node 的典型证书码与 undici 的 cause 链形状。

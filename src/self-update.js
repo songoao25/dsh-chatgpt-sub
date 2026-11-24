@@ -244,7 +244,9 @@ function listPayloadFiles(baseDir) {
       try { info = lstatSync(full) } catch { continue }
       if (info.isSymbolicLink()) continue
       if (info.isDirectory()) walk(full, relative)
-      else if (isAllowedPayloadPath(relative)) found.push(relative)
+      // .update-tmp 是 rename 的前身，只可能来自一次中断的替换。把它当 payload 收进备份，
+      // 回滚时又会被搬回包目录，包目录就越来越脏；这里连同下面的写入失败清理一起挡掉。
+      else if (isAllowedPayloadPath(relative) && !relative.endsWith('.update-tmp')) found.push(relative)
     }
   }
   walk(baseDir, '')
@@ -291,6 +293,11 @@ export function applyPayload(files, context) {
   } catch (error) {
     rollbackPayload({ packageDir, backupDir, before: backedUp, written })
     restoredFiles()
+    // rename 失败（Windows 上文件被占用最常见）或进程被杀都会把临时文件留在原地。
+    // 不清理的话它会被下一次备份带走、回滚时再搬回来，成为永远清不掉的脏文件。
+    for (const entry of targets) {
+      try { rmSync(entry.target + '.update-tmp', { force: true }) } catch { /* 清理失败不影响回滚结果 */ }
+    }
     if (typeof log === 'function') log('update rolled back: ' + error.message)
     throw error
   }
@@ -423,6 +430,15 @@ export function createSelfUpdater(options) {
       const url = UPDATE_REGISTRY_ORIGIN + '/' + PACKAGE_NAME + '/-/' + PACKAGE_NAME + '-' + version + '.tgz'
       const response = await fetchImpl(url, { headers: { accept: 'application/octet-stream' }, signal: controller.signal })
       if (!response.ok) throw new Error('download failed: http ' + response.status)
+      // 先看声明长度：真正的上限检查在读完 body 之后，那时内存已经吃进去了。
+      // headers 可能是 Headers，也可能是不带 get 的普通对象（测试桩、某些代理层），两形状都认。
+      const declaredHeader = response.headers && typeof response.headers.get === 'function'
+        ? response.headers.get('content-length')
+        : (response.headers && (response.headers['content-length'] || response.headers['Content-Length']))
+      const declared = Number(declaredHeader)
+      if (Number.isFinite(declared) && declared > maxBytes) {
+        throw new Error('download failed: too large (declared ' + declared + ' bytes)')
+      }
       const buffer = Buffer.from(await response.arrayBuffer())
       if (buffer.length === 0) throw new Error('download failed: empty body')
       if (buffer.length > maxBytes) throw new Error('download failed: too large (' + buffer.length + ' bytes)')
@@ -433,11 +449,27 @@ export function createSelfUpdater(options) {
   }
 
   // 备份目录只保留最近若干份，避免长期堆积占用户空间。
-  function pruneBackups() {
+  function pruneBackups(protectVersion) {
     try {
-      const names = readdirSync(backupRoot).filter((name) => name !== 'previous').sort()
-      for (const name of names.slice(0, Math.max(0, names.length - keepBackups))) {
-        rmSync(join(backupRoot, name), { recursive: true, force: true })
+      const names = readdirSync(backupRoot).filter((name) => name !== 'previous')
+      // 备份目录名是版本号。字典序会认为 '0.9.0' 比 '0.11.0' 新，于是把「刚建好的那份」当成
+      // 最旧的删掉，回滚当场变成 no-backup —— 逃生门静默失效。这里按语义版本排序。
+      const ranked = names.slice().sort((left, right) => {
+        const a = parseSemver(left)
+        const b = parseSemver(right)
+        if (a && b) return compareSemver(left, right)
+        if (a) return 1
+        if (b) return -1
+        return left < right ? -1 : left > right ? 1 : 0
+      })
+      const keep = Math.max(0, keepBackups)
+      const keepSet = new Set(ranked.slice(Math.max(0, ranked.length - keep)))
+      // 这两份无条件保留：本次刚写下的备份（还没重启、最可能要用），
+      // 以及上一次更新留下的待重启备份（用户可能正打算回滚它）。
+      if (protectVersion) keepSet.add(protectVersion)
+      if (state.pendingVersion) keepSet.add(state.pendingVersion)
+      for (const name of ranked) {
+        if (!keepSet.has(name)) rmSync(join(backupRoot, name), { recursive: true, force: true })
       }
     } catch { /* 目录不存在即无需清理 */ }
   }
@@ -449,7 +481,7 @@ export function createSelfUpdater(options) {
     // 用户打开设置页后，即使启动时的自动下载已经开始，也不得在当前页面替换插件文件。
     if (!manual && !autoInstallAllowed()) return false
     const result = applyPayload(files, { packageDir, backupDir: join(backupRoot, target.version), log })
-    pruneBackups()
+    pruneBackups(target.version)
     return !!result
   }
 
@@ -553,13 +585,20 @@ export function createSelfUpdater(options) {
     //   run({ manual: true })  → 安装（用户点「更新到 X」；自动方式关掉时的显式授权）
     run(options) {
       const slot = options && options.mode === 'check' ? 'check' : 'install'
-      // 启动自动更新在途时，用户确认的手动安装必须随后真正执行，不能复用自动任务的跳过结果。
-      if (slot === 'install' && options && options.manual && inFlight.install) {
-        return inFlight.install.then(() => this.run(options))
+      const manual = Boolean(options && options.manual)
+      if (slot === 'install' && inFlight.install) {
+        // 手动安装落在自动安装后面时必须真的再跑一次：自动那次可能因为「已是最新」而跳过。
+        // 但已经在跑一次手动安装时，再点一次没有意义 —— 串行下载并替换两遍只会白建一份备份。
+        if (manual && !inFlight.manualInstall) return inFlight.install.then(() => this.run(options))
+        return inFlight.install
       }
       if (inFlight[slot]) return inFlight[slot]
-      const pending = runOnce(options).finally(() => { inFlight[slot] = null })
+      const pending = runOnce(options).finally(() => {
+        inFlight[slot] = null
+        inFlight.manualInstall = false
+      })
       inFlight[slot] = pending
+      inFlight.manualInstall = slot === 'install' && manual
       return pending
     },
     setAutoUpdate(enabled) {
@@ -573,8 +612,15 @@ export function createSelfUpdater(options) {
     rollback() {
       const target = state.pendingVersion
       if (!target) return { restored: false, reason: 'nothing-to-roll-back' }
+      // 安装正在写盘时回调滚，两批文件会交错：安装写一半、备份被换成回滚后的状态，
+      // 最后落成一个既不是新版也不是旧版的混合体。让调用方等这次安装结束后再试。
+      if (inFlight.install) return { restored: false, reason: 'update-in-flight' }
       const backupDir = join(backupRoot, target)
       if (!existsSync(backupDir)) return { restored: false, reason: 'no-backup' }
+      // 备份只对「刚装上的那个版本」成立。磁盘上已经不是它了（用户手工换过、或另一次更新成功过），
+      // 再回滚只会把当前版本静默换成更旧的一份，用户看到的却是「回滚成功」。
+      const onDisk = diskVersion()
+      if (onDisk && onDisk !== target) return { restored: false, reason: 'version-changed', version: onDisk }
       const before = listPayloadFiles(backupDir)
       const current = listPayloadFiles(packageDir)
       const result = rollbackPayload({ packageDir, backupDir, before, written: current })

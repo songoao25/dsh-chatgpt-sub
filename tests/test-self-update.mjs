@@ -869,6 +869,41 @@ await okAsync('真实装置：外部换旧版 → downgrade；用户点过回滚
   } finally { real.cleanup() }
 })
 
+// =====================================================================================
+// 备份剪枝与回滚的护栏
+// =====================================================================================
+await okAsync('备份剪枝按语义版本排序：0.9.0 不会把 0.11.0 和刚建好的备份挤出保留位', async () => {
+  const fx = makeFixture({ version: '1.0.0' })
+  try {
+    const backupRoot = join(fx.dataDir, 'update-backup')
+    for (const name of ['0.9.0', '0.11.0']) mkdirSync(join(backupRoot, name), { recursive: true })
+    const payload = makePayload('1.1.0')
+    const { updater } = makeUpdater(fx, { payload, latestVersion: '1.1.0', keepBackups: 2 })
+    await updater.run({ manual: true })
+    const left = readdirSync(backupRoot)
+    assert.ok(left.includes('1.1.0'), '刚建好的备份必须在（否则回滚只能报 no-backup）')
+    assert.ok(left.includes('0.11.0'), '较新的旧备份必须留着')
+    assert.ok(!left.includes('0.9.0'), '最旧的一份被剪掉')
+  } finally { fx.cleanup() }
+})
+
+ok('回滚前核对磁盘版本：磁盘已不是待回滚版本时拒绝，绝不静默降级', () => {
+  const fx = makeFixture({ version: '1.0.0' })
+  try {
+    writeFileSync(join(fx.dataDir, 'update-state.json'), JSON.stringify({ pendingVersion: '0.9.0', holdVersion: null }))
+    const backupDir = join(fx.dataDir, 'update-backup', '0.9.0')
+    mkdirSync(backupDir, { recursive: true })
+    writeFileSync(join(backupDir, 'package.json'), JSON.stringify({ name: PACKAGE_NAME, version: '0.8.0' }, null, 2) + '\n')
+    const updater = createSelfUpdater({ packageDir: fx.packageDir, dataDir: fx.dataDir, runningVersion: '1.0.0' })
+    updater.loadState()
+    const result = updater.rollback()
+    assert.equal(result.restored, false)
+    assert.equal(result.reason, 'version-changed')
+    assert.equal(result.version, '1.0.0')
+    assert.equal(JSON.parse(readFileSync(join(fx.packageDir, 'package.json'), 'utf8')).version, '1.0.0', '包目录一个字节都没动')
+  } finally { fx.cleanup() }
+})
+
 console.log(`self-updater: ${passed} PASS / ${failed} FAIL`);
 if (failures.length) console.error(failures.join("\n"));
 process.exit(failed ? 1 : 0);

@@ -50,6 +50,17 @@ import { normalizeResponsesBody, parseModelList, buildAuthorizeUrl, parseCallbac
     { slug: 'hidden', display_name: 'Hidden', visibility: 'hide' },
   ] })
   assert.deepEqual(models, [{ id: 'gpt-6.1-sol', name: 'GPT-6.1 Sol' }])
+  // visibility 是可选字段：同批里有一条带它，不代表其余条目不可见。
+  // 以前只要出现一个 visibility，不带该字段的条目就被整条丢掉（模型直接消失）。
+  const mixed = parseModelList({ models: [
+    { slug: 'gpt-6.1-sol', display_name: 'GPT-6.1 Sol', visibility: 'list' },
+    { slug: 'gpt-6.1-mini', display_name: 'GPT-6.1 Mini' },
+    { slug: 'hidden', display_name: 'Hidden', visibility: 'hide' },
+  ] })
+  assert.deepEqual(mixed, [
+    { id: 'gpt-6.1-sol', name: 'GPT-6.1 Sol' },
+    { id: 'gpt-6.1-mini', name: 'GPT-6.1 Mini' },
+  ], 'entries without a visibility field stay visible')
   const url = new URL(buildAuthorizeUrl({
     clientId: 'dynamic_agent_client', hostId: 'urn:uuid:00000000-0000-4000-8000-000000000000',
     redirectUri: 'http://127.0.0.1:12345/auth/callback', state: 'st', nonce: 'no',

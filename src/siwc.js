@@ -313,11 +313,12 @@ export function hasPlanUsage(scopes) {
 // /v1/models 的形状：{ models: [{ slug, display_name, visibility }] }，与 API key 的 data/id 不同。
 export function parseModelList(json) {
   if (!isObject(json) || !Array.isArray(json.models)) return []
-  const hasVisibility = json.models.some(function (entry) { return isObject(entry) && typeof entry.visibility === 'string' })
   const models = []
   for (const entry of json.models) {
     if (!isObject(entry)) continue
-    if (hasVisibility && entry.visibility !== 'list') continue
+    // 只丢「明确标成不可列出」的条目。visibility 是可选字段：某条不带它，
+    // 不代表这条不可见；以前只要同批里有一条带 visibility，其余不带的全被丢掉。
+    if (typeof entry.visibility === 'string' && entry.visibility !== 'list') continue
     if (!isNonEmptyString(entry.slug)) continue
     models.push({
       id: entry.slug,

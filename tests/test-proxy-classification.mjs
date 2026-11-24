@@ -155,4 +155,28 @@ await withUpstreamError(null, async function () {
   }
 })
 
+// ---------- 7. 请求体超限：必须回 413，而不是把连接一断了事 ----------
+// 以前这里先 req.destroy() 再想写 413，socket 已经没了，调用方只看到 ECONNRESET，
+// DSH 会把它当成一次网络故障，用户拿到的提示完全指错方向。
+await withUpstreamError(null, async function () {
+  globalThis.fetch = async function () {
+    throw new Error('upstream should not be reached for an oversized body')
+  }
+  const proxy = await startProxy()
+  try {
+    const oversized = JSON.stringify({ model: 'gpt-test', input: 'a'.repeat(49 * 1024 * 1024) })
+    const res = await originalFetch(proxy.baseUrl + '/responses', {
+      method: 'POST',
+      headers: { authorization: 'Bearer test-token', 'content-type': 'application/json' },
+      body: oversized,
+    })
+    assert.equal(res.status, 413)
+    const body = await res.json()
+    assert.equal(body.error.type, 'invalid_request_error')
+    assert.equal(body.error.message, 'Request body is too large')
+  } finally {
+    proxy.close()
+  }
+})
+
 console.log('proxy upstream failure classification: PASS')
