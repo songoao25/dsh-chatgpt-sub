@@ -16,8 +16,21 @@
 import { createServer } from 'node:http'
 import { Readable } from 'node:stream'
 import { normalizeResponsesBody } from './siwc.js'
+import { classifyNetworkError } from './network.js'
 
 const MAX_BODY_BYTES = 48 * 1024 * 1024
+
+// 上游连不上时，代理把失败原因一并带给调用方。
+// 以前这里只回一句「Could not reach ChatGPT」，调用方（DSH 的模型适配器）无从
+// 区分是 DNS 不通、代理端口没起还是握手被掐断，用户只能自己猜。
+// reason 取值与 src/network.js 一致（timeout / dns / refused / unreachable / proxy-reset / unknown）。
+const UPSTREAM_MESSAGES = {
+  timeout: 'Timed out reaching ChatGPT',
+  dns: 'The ChatGPT domain name did not resolve',
+  refused: 'The connection to ChatGPT was refused',
+  unreachable: 'The network to ChatGPT is unreachable',
+  'proxy-reset': 'The connection to ChatGPT was closed before the encrypted handshake finished',
+}
 
 function sendJson(res, status, payload) {
   if (res.headersSent) { try { res.destroy() } catch (err) {} return }
@@ -147,7 +160,17 @@ export function startResponsesProxy(options) {
         })
       } catch (err) {
         if (controller.signal.aborted) { try { res.destroy() } catch (destroyErr) {} ; return }
-        sendJson(res, 502, { error: { type: 'upstream_error', message: 'Could not reach ChatGPT' } })
+        // 上游失败也分原因：调用方拿得到 reason 才知道是代理没起还是 DNS 不通。
+        const failure = classifyNetworkError(err)
+        const reason = failure && typeof failure.reason === 'string' ? failure.reason : 'unknown'
+        log('proxy ' + pathname + ' upstream failed (' + reason + '): ' + (err && err.message ? err.message : 'unknown error'))
+        sendJson(res, 502, {
+          error: {
+            type: 'upstream_error',
+            message: UPSTREAM_MESSAGES[reason] || 'Could not reach ChatGPT',
+            reason: reason,
+          },
+        })
       }
     })
 
