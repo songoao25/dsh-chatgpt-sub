@@ -2,6 +2,13 @@
 
 本项目的版本记录遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.10.0](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.9.2...v0.10.0) (2026-11-24)
+
+
+### Features
+
+* classify outbound network failures by cause ([#75](https://github.com/songoao25/dsh-chatgpt-sub/issues/75)) ([3170b9a](https://github.com/songoao25/dsh-chatgpt-sub/commit/3170b9a5fa7efd6d71caf46c4633833a3cf8de73))
+
 ## [0.9.2](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.9.1...v0.9.2) (2026-11-22)
 
 
