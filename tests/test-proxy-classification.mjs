@@ -21,8 +21,10 @@ const originalFetch = globalThis.fetch
 // 让上游请求抛出指定错误，其他请求照常走真实 fetch。
 async function withUpstreamError(error, run) {
   globalThis.fetch = async function (input, init) {
-    const url = typeof input === 'string' ? input : (input && input.url ? input.url : String(input))
-    if (url.startsWith('http://upstream.test')) throw error
+    const target = typeof input === 'string' ? input : (input && input.url ? input.url : String(input))
+    let hostname = ''
+    try { hostname = new URL(target).hostname } catch (err) { hostname = '' }
+    if (hostname === 'upstream.test') throw error
     return originalFetch(input, init)
   }
   try {
