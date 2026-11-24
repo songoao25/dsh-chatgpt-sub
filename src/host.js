@@ -1150,7 +1150,15 @@ export default {
             path: ROUTE_PREFIX,
             handler: async function (req, res) {
               try {
-                const rejection = webCtx.connection.requestRejection(req)
+                // DSH 0.2.3 起 Connection 重构移除了 requestRejection：路由改由注册时的 auth 声明
+                // 负责准入（默认 required，未认证请求在框架层被拦），插件这段手工检查在新宿主上
+                // 已冗余。无守卫直调不存在的方法会抛 TypeError、被下方 catch 统一转成 500，
+                // 设置页全部路由随之失效（与 dsh-bottom-info-bar Issue #313 同根因，它已在
+                // v1.27.3 用同款守卫修复）。因此：宿主仍提供 requestRejection 时照旧调用；
+                // 不存在时跳过手工检查，准入交给框架默认策略。
+                const rejection = typeof webCtx.connection.requestRejection === 'function'
+                  ? webCtx.connection.requestRejection(req)
+                  : undefined
                 if (rejection !== undefined) {
                   respond(res, rejection, { error: rejection === 401 ? 'authentication required' : 'request rejected' })
                   return
