@@ -2,6 +2,13 @@
 
 本项目的版本记录遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.11.1](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.11.0...v0.11.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* harden failure paths across sync, oauth, proxy and self-update ([#85](https://github.com/songoao25/dsh-chatgpt-sub/issues/85)) ([2625c2a](https://github.com/songoao25/dsh-chatgpt-sub/commit/2625c2a26c8f0bd4219f9977b6b7f25b4736e42b))
+
 ## [0.11.0](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.10.2...v0.11.0) (2026-11-24)
 
 
