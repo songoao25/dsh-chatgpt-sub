@@ -2,6 +2,13 @@
 
 本项目的版本记录遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.10.2](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.10.1...v0.10.2) (2026-11-24)
+
+
+### Bug Fixes
+
+* guard connection.requestRejection for DSH 0.2.3 hosts ([#80](https://github.com/songoao25/dsh-chatgpt-sub/issues/80)) ([16d8ada](https://github.com/songoao25/dsh-chatgpt-sub/commit/16d8adaf248f50762e5002d23c574a83ff0f1c21))
+
 ## [0.10.1](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.10.0...v0.10.1) (2026-11-24)
 
 
