@@ -72,7 +72,12 @@ try {
   assert.equal(after.auth.tokens.account_id, 'acct-1')
   assert.equal(after.auth.auth_mode, 'oauth')
   assert.ok(decodeJwtExp(after.auth.tokens.access_token) > nowSec + 3000)
-  assert.equal(statSync(file).mode & 0o777, 0o600)
+  // POSIX 位只在支持权限位的文件系统上有意义。Windows/NTFS 没有等价权限位，
+  // statSync().mode 的低位恒为 0o666（无论文件是否只对当前用户可写），
+  // 所以在这类平台上断言 0o600 只会得到一个与实现无关的假失败。
+  if (process.platform !== 'win32') {
+    assert.equal(statSync(file).mode & 0o777, 0o600)
+  }
 
   // http failure → leave file untouched
   writeAuth(nowSec + 60)

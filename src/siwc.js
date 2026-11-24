@@ -12,6 +12,8 @@
 //   - 工具必须放进 namespace，或通过 additional_tools 输入项提供；
 //   - system 消息必须改成 developer 消息。
 
+import { classifyHttpFailure, classifyNetworkError } from './network.js'
+
 export const AUTH_ORIGIN = 'https://auth.openai.com'
 export const AUTHORIZE_URL = AUTH_ORIGIN + '/api/accounts/authorize'
 export const TOKEN_URL = AUTH_ORIGIN + '/api/accounts/oauth/token'
@@ -100,17 +102,24 @@ function formBody(fields) {
   return params.toString()
 }
 
+// 网络失败不抛异常：调用方要能把「连不上」和「服务端返回 4xx/5xx」分开，
+// 所以这里把失败也变成返回值（failure），由调用方决定错误码。
 async function postForm(url, fields, signal) {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded', accept: 'application/json' },
-    body: formBody(fields),
-    signal: signal || AbortSignal.timeout(20000),
-  })
+  let response
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', accept: 'application/json' },
+      body: formBody(fields),
+      signal: signal || AbortSignal.timeout(20000),
+    })
+  } catch (err) {
+    return { status: null, ok: false, body: null, text: '', failure: classifyNetworkError(err) }
+  }
   const text = await response.text().catch(function () { return '' })
   let body = null
   try { body = text.length > 0 ? JSON.parse(text) : null } catch (err) { body = null }
-  return { status: response.status, ok: response.ok, body: body, text: text }
+  return { status: response.status, ok: response.ok, body: body, text: text, failure: null }
 }
 
 // 授权码换令牌：client_id 必须是回调里颁发的 oaiapp_…；没有 client secret。
@@ -124,7 +133,8 @@ export async function exchangeAuthorizationCode(input, signal) {
     resource: RESOURCE,
   }, signal)
   if (!result.ok || !isObject(result.body) || !isNonEmptyString(result.body.access_token)) {
-    return { ok: false, status: result.status, error: result.body && result.body.error, body: result.body }
+    const failure = result.failure || classifyHttpFailure(result.status, result.body)
+    return { ok: false, status: result.status, error: result.body && result.body.error, body: result.body, failure: failure }
   }
   return { ok: true, status: result.status, tokens: parseTokenResponse(result.body) }
 }
@@ -138,7 +148,8 @@ export async function refreshTokens(input, signal) {
     resource: RESOURCE,
   }, signal)
   if (!result.ok || !isObject(result.body) || !isNonEmptyString(result.body.access_token)) {
-    return { ok: false, status: result.status, error: result.body && result.body.error, body: result.body }
+    const failure = result.failure || classifyHttpFailure(result.status, result.body)
+    return { ok: false, status: result.status, error: result.body && result.body.error, body: result.body, failure: failure }
   }
   return { ok: true, status: result.status, tokens: parseTokenResponse(result.body) }
 }
@@ -221,9 +232,18 @@ export function jwtExpiresAt(token) {
   return payload && typeof payload.exp === 'number' && isFinite(payload.exp) ? payload.exp * 1000 : null
 }
 
+// 抛错时把失败原因挂在 error.failure 上：调用方要能区分「网络没通」和「签名校验不过」，
+// 两者给用户的建议完全不同。
 async function fetchJwks(url, signal) {
-  const response = await fetch(url, { signal: signal || AbortSignal.timeout(10000), headers: { accept: 'application/json' } })
-  if (!response.ok) throw new Error('JWKS request failed: ' + response.status)
+  let response
+  try {
+    response = await fetch(url, { signal: signal || AbortSignal.timeout(10000), headers: { accept: 'application/json' } })
+  } catch (err) {
+    throw Object.assign(new Error('JWKS request failed: ' + String((err && err.message) || err)), { failure: classifyNetworkError(err) })
+  }
+  if (!response.ok) {
+    throw Object.assign(new Error('JWKS request failed: ' + response.status), { failure: classifyHttpFailure(response.status, null) })
+  }
   const body = await response.json()
   return isObject(body) && Array.isArray(body.keys) ? body.keys : []
 }
