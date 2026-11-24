@@ -23,6 +23,7 @@ const files = [
   'test-siwc-flow.mjs',
   'test-network-diagnostics.mjs',
   'test-connection-compat.mjs',
+  'test-proxy-classification.mjs',
 ]
 
 let allPass = true

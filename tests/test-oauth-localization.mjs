@@ -9,10 +9,15 @@ const NEW_KEYS = [
   'error.token.refresh-terminal', 'error.token.plan-usage-missing', 'error.proxy.start-failed',
   'error.route.proxy', 'error.state.migrated',
   'error.oauth.exchange-region-blocked', 'error.oauth.exchange-timeout', 'error.oauth.exchange-dns',
-  'error.oauth.exchange-refused', 'error.oauth.exchange-unreachable',
-  'error.oauth.id-token-timeout', 'error.oauth.id-token-network',
+  'error.oauth.exchange-refused', 'error.oauth.exchange-unreachable', 'error.oauth.exchange-proxy-reset',
+  'error.oauth.id-token-timeout', 'error.oauth.id-token-network', 'error.oauth.id-token-dns',
+  'error.oauth.id-token-refused', 'error.oauth.id-token-unreachable', 'error.oauth.id-token-proxy-reset',
+  'error.oauth.id-token-http',
   'error.models.region-blocked', 'error.models.timeout', 'error.models.dns',
   'error.models.refused', 'error.models.unreachable', 'error.models.http',
+  'error.models.proxy-reset', 'error.models.network',
+  'error.token.refresh-timeout', 'error.token.refresh-dns', 'error.token.refresh-refused',
+  'error.token.refresh-unreachable', 'error.token.refresh-proxy-reset', 'error.token.refresh-http',
 ]
 for (const [language, dictionary] of Object.entries(LOCALES)) {
   for (const key of NEW_KEYS) {
