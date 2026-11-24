@@ -2,6 +2,13 @@
 
 本项目的版本记录遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.10.1](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.10.0...v0.10.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* unwrap undici cause chain when classifying network errors ([#77](https://github.com/songoao25/dsh-chatgpt-sub/issues/77)) ([67d7ebc](https://github.com/songoao25/dsh-chatgpt-sub/commit/67d7ebcf4b97b8d9935f7241bd20c081a3c3ea8d))
+
 ## [0.10.0](https://github.com/songoao25/dsh-chatgpt-sub/compare/v0.9.2...v0.10.0) (2026-11-24)
 
 
