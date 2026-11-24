@@ -15,7 +15,7 @@ const libDir = join(root, 'lib')
 await rm(libDir, { recursive: true, force: true })
 await mkdir(libDir, { recursive: true })
 
-for (const file of ['self-update.js', 'version.js', 'siwc.js', 'proxy.js', 'codex-quota.js']) await copyFile(join(root, 'src', file), join(libDir, file))
+for (const file of ['self-update.js', 'version.js', 'siwc.js', 'network.js', 'proxy.js', 'codex-quota.js']) await copyFile(join(root, 'src', file), join(libDir, file))
 
 // 1) host（ESM，原样复制，加文件头注释）
 await writeFile(join(libDir, 'locales.js'), 'export const LOCALES = ' + JSON.stringify(LOCALES) + '\n')

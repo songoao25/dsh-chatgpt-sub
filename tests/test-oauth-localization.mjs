@@ -8,6 +8,11 @@ const NEW_KEYS = [
   'error.oauth.plan-usage-missing', 'error.oauth.id-token-invalid', 'error.models.empty',
   'error.token.refresh-terminal', 'error.token.plan-usage-missing', 'error.proxy.start-failed',
   'error.route.proxy', 'error.state.migrated',
+  'error.oauth.exchange-region-blocked', 'error.oauth.exchange-timeout', 'error.oauth.exchange-dns',
+  'error.oauth.exchange-refused', 'error.oauth.exchange-unreachable',
+  'error.oauth.id-token-timeout', 'error.oauth.id-token-network',
+  'error.models.region-blocked', 'error.models.timeout', 'error.models.dns',
+  'error.models.refused', 'error.models.unreachable', 'error.models.http',
 ]
 for (const [language, dictionary] of Object.entries(LOCALES)) {
   for (const key of NEW_KEYS) {

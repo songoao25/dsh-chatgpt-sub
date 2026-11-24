@@ -56,6 +56,8 @@ The browser confirms success only after the plugin has validated the sign-in and
 
 **Sign in again** renews the binding. **Unbind** revokes the refresh token and disconnects the account from this plugin. An existing Codex CLI sign-in is not adopted by the plugin.
 
+If the sign-in fails with a network error, the plugin names the cause instead of reporting one generic connection failure: the region was refused, the request timed out, the domain did not resolve, the connection was refused, the network is unreachable, or the response carried an unexpected HTTP status. A region refusal means OpenAI declined the request from the current location. Set `HTTPS_PROXY` in `~/.dsh/.env` and restart DSH completely, because the proxy variables are read at startup and a page refresh does not apply them. The other cases point at the local network or proxy. The same breakdown applies when the sign-in succeeds but the model list cannot be read. [docs/INSTALL.md](docs/INSTALL.md) lists every case with its fix.
+
 ## Sign-in data and updates
 
 Authorization and model requests communicate with official OpenAI endpoints. Tokens are stored in DSH's credential store under `chatgpt-sub/session` with owner-only permissions; the host identifier lives in `~/.dsh/dsh-chatgpt-sub/host-id`. Official inference never uses `~/.codex/auth.json`. For numeric quota windows, the plugin reuses and refreshes an **existing** Codex login file when present, preserving its structure; it never creates that file and never routes inference through it. If the file is absent, the info bar shows account/plan/expiry only, and running `codex login` once enables the windows. Tokens are sent to OpenAI only for authorized requests and are not written to plugin logs.

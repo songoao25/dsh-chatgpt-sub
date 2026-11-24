@@ -21,6 +21,7 @@ const files = [
   'test-siwc-host.mjs',
   'test-codex-quota.mjs',
   'test-siwc-flow.mjs',
+  'test-network-diagnostics.mjs',
 ]
 
 let allPass = true
