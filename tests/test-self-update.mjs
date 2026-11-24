@@ -869,6 +869,172 @@ await okAsync('真实装置：外部换旧版 → downgrade；用户点过回滚
   } finally { real.cleanup() }
 })
 
+// =====================================================================================
+// 17. 2026-11-24 全量自查：更新器失败路径（剪枝排序／回滚守卫／临时文件／下载预检）
+// =====================================================================================
+await okAsync('备份剪枝按语义版本排序：0.9.0 比 0.10.0 旧，不能靠字典序赖着不走', async () => {
+  const fx = makeFixture({ version: '0.8.0' })
+  try {
+    for (const version of ['0.9.0', '0.10.0', '0.11.0']) {
+      const payload = makePayload(version)
+      const updater = createSelfUpdater({
+        packageDir: fx.packageDir,
+        dataDir: fx.dataDir,
+        runningVersion: '0.8.0',
+        keepBackups: 2,
+        fetch: async (url) => (url.endsWith('/latest')
+          ? jsonResponse({ version, dist: { integrity: payload.integrity } })
+          : bufferResponse(payload.tarball)),
+      })
+      await updater.run()
+    }
+    const backups = readdirSync(join(fx.dataDir, 'update-backup')).sort()
+    assert.deepEqual(backups, ['0.10.0', '0.11.0'], '最旧的是 0.9.0，该删的是它')
+  } finally { fx.cleanup() }
+})
+
+await okAsync('刚建的备份不许被剪枝删掉：keepBackups=1 时回滚仍找得到备份', async () => {
+  const fx = makeFixture({ version: '0.8.0' })
+  try {
+    for (const version of ['0.9.0', '0.10.0']) {
+      const payload = makePayload(version)
+      const updater = createSelfUpdater({
+        packageDir: fx.packageDir,
+        dataDir: fx.dataDir,
+        runningVersion: '0.8.0',
+        keepBackups: 1,
+        fetch: async (url) => (url.endsWith('/latest')
+          ? jsonResponse({ version, dist: { integrity: payload.integrity } })
+          : bufferResponse(payload.tarball)),
+      })
+      await updater.run()
+    }
+    const backups = readdirSync(join(fx.dataDir, 'update-backup'))
+    assert.deepEqual(backups, ['0.10.0'], '字典序会把 0.10.0 排在 0.9.0 前面误删')
+    const updater = createSelfUpdater({ packageDir: fx.packageDir, dataDir: fx.dataDir, runningVersion: '0.10.0' })
+    updater.loadState()
+    const result = updater.rollback()
+    assert.equal(result.restored, true, '回滚必须找得到刚建的备份')
+    assert.equal(JSON.parse(readFileSync(join(fx.packageDir, 'package.json'), 'utf8')).version, '0.9.0')
+  } finally { fx.cleanup() }
+})
+
+await okAsync('安装在途时回滚必须拒绝，而不是滚完又被在途安装盖回去', async () => {
+  const fx = makeFixture({ version: '1.0.0' })
+  try {
+    const first = makePayload('1.1.0')
+    const { updater: updater1 } = makeUpdater(fx, { payload: first, latestVersion: '1.1.0' })
+    await updater1.run()
+    assert.equal(JSON.parse(readFileSync(join(fx.packageDir, 'package.json'), 'utf8')).version, '1.1.0')
+
+    let releaseDownload = null
+    let downloadStarted = false
+    const gate = new Promise((resolve) => { releaseDownload = resolve })
+    const second = makePayload('1.2.0')
+    const { updater: updater2 } = makeUpdater(fx, {
+      payload: second,
+      latestVersion: '1.2.0',
+      onFetch: async (url) => {
+        if (!url.endsWith('/latest')) { downloadStarted = true; await gate }
+        return undefined
+      },
+    })
+    updater2.loadState()
+    const pending = updater2.run()
+    for (let i = 0; i < 100 && !downloadStarted; i++) await new Promise((resolve) => setTimeout(resolve, 10))
+    assert.equal(downloadStarted, true, '安装应当已进入下载阶段')
+    const blocked = updater2.rollback()
+    assert.deepEqual(blocked, { restored: false, reason: 'update-in-flight' })
+    assert.equal(JSON.parse(readFileSync(join(fx.packageDir, 'package.json'), 'utf8')).version, '1.1.0', '被拒的回滚不许动磁盘')
+    releaseDownload()
+    await pending
+    assert.equal(JSON.parse(readFileSync(join(fx.packageDir, 'package.json'), 'utf8')).version, '1.2.0', '在途安装应正常完成')
+  } finally { fx.cleanup() }
+})
+
+await okAsync('磁盘版本被外部换掉时回滚必须拒绝，不许拿对不上号的备份硬滚', async () => {
+  const fx = makeFixture({ version: '1.0.0' })
+  try {
+    const payload = makePayload('1.1.0')
+    const { updater } = makeUpdater(fx, { payload, latestVersion: '1.1.0' })
+    await updater.run()
+    // 模拟 DSH 重装／手动换包：磁盘版本已不是待回滚的那个版本。
+    writeFileSync(join(fx.packageDir, 'package.json'), JSON.stringify({ name: PACKAGE_NAME, version: '9.9.9' }, null, 2) + '\n')
+    const result = updater.rollback()
+    assert.deepEqual(result, { restored: false, reason: 'version-changed' })
+    assert.equal(JSON.parse(readFileSync(join(fx.packageDir, 'package.json'), 'utf8')).version, '9.9.9', '被拒的回滚不许动磁盘')
+    assert.equal(readFileSync(join(fx.packageDir, 'lib', 'index.js'), 'utf8'), '// host 1.1.0\n')
+  } finally { fx.cleanup() }
+})
+
+ok('listPayloadFiles 跳过 .update-tmp 残片，不把临时文件当包内容收进备份', () => {
+  const fx = makeFixture()
+  try {
+    writeFileSync(join(fx.packageDir, 'lib', 'stale.js.update-tmp'), '// crashed mid-write\n')
+    writeFileSync(join(fx.packageDir, 'lib', 'index.js.update-tmp'), '// crashed mid-write\n')
+    const updater = createSelfUpdater({ packageDir: fx.packageDir, dataDir: fx.dataDir, runningVersion: '1.0.0' })
+    const listed = updater._internal.listPayloadFiles(fx.packageDir)
+    assert.ok(listed.includes('lib/index.js'))
+    assert.equal(listed.some((name) => name.endsWith('.update-tmp')), false, '临时文件不许进备份清单')
+  } finally { fx.cleanup() }
+})
+
+ok('applyPayload：rename 失败时正在写的临时文件也要清掉', () => {
+  const fx = makeFixture()
+  try {
+    // 目标位置被占成目录，rename 必然失败——模拟「写完临时文件、替换没成」。
+    mkdirSync(join(fx.packageDir, 'lib', 'blocked.js'))
+    const backupDir = join(fx.dataDir, 'update-backup', 'rename-fail')
+    assert.throws(() => applyPayload(
+      [{ path: 'lib/blocked.js', data: Buffer.from('// new\n') }],
+      { packageDir: fx.packageDir, backupDir },
+    ))
+    assert.equal(existsSync(join(fx.packageDir, 'lib', 'blocked.js.update-tmp')), false, '不许留下临时文件')
+    assert.equal(readFileSync(join(fx.packageDir, 'lib', 'index.js'), 'utf8'), '// old host\n', '其余文件不许被动')
+  } finally { fx.cleanup() }
+})
+
+await okAsync('下载先看声明长度：content-length 已超限直接拒绝，不整包读进内存', async () => {
+  const fx = makeFixture()
+  try {
+    let consumed = false
+    const makeHeadersUpdater = (headers) => createSelfUpdater({
+      packageDir: fx.packageDir,
+      dataDir: fx.dataDir,
+      runningVersion: '1.0.0',
+      fetch: async () => ({
+        ok: true,
+        status: 200,
+        headers,
+        arrayBuffer: async () => { consumed = true; return new ArrayBuffer(4) },
+      }),
+    })
+    await assert.rejects(
+      () => makeHeadersUpdater(new Headers({ 'content-length': String(64 * 1024 * 1024) }))._internal.downloadTarball('9.9.9'),
+      /too large/,
+    )
+    assert.equal(consumed, false, '声明已超限就不许再读响应体')
+    await assert.rejects(
+      () => makeHeadersUpdater({ 'content-length': '999999999' })._internal.downloadTarball('9.9.9'),
+      /too large/,
+      '普通对象形状的 headers 也要认',
+    )
+    const small = createSelfUpdater({
+      packageDir: fx.packageDir,
+      dataDir: fx.dataDir,
+      runningVersion: '1.0.0',
+      fetch: async () => ({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-length': '4' }),
+        arrayBuffer: async () => new ArrayBuffer(4),
+      }),
+    })
+    const buffer = await small._internal.downloadTarball('9.9.9')
+    assert.equal(buffer.length, 4, '声明未超限时照常下载')
+  } finally { fx.cleanup() }
+})
+
 console.log(`self-updater: ${passed} PASS / ${failed} FAIL`);
 if (failures.length) console.error(failures.join("\n"));
 process.exit(failed ? 1 : 0);

@@ -24,6 +24,7 @@ const files = [
   'test-network-diagnostics.mjs',
   'test-connection-compat.mjs',
   'test-proxy-classification.mjs',
+  'test-failure-paths.mjs',
 ]
 
 let allPass = true

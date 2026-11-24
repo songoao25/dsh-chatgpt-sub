@@ -244,7 +244,9 @@ function listPayloadFiles(baseDir) {
       try { info = lstatSync(full) } catch { continue }
       if (info.isSymbolicLink()) continue
       if (info.isDirectory()) walk(full, relative)
-      else if (isAllowedPayloadPath(relative)) found.push(relative)
+      // .update-tmp 是替换中途的临时文件：上次替换崩溃留下的残片不是包内容，
+      // 收进备份后还会被回滚当成正式文件「恢复」进包目录，必须跳过。
+      else if (!name.endsWith('.update-tmp') && isAllowedPayloadPath(relative)) found.push(relative)
     }
   }
   walk(baseDir, '')
@@ -289,6 +291,12 @@ export function applyPayload(files, context) {
       written.push(file.path)
     }
   } catch (error) {
+    // rename 失败时，正在写的那份临时文件不在回滚清单（written）里：
+    // 留下来会被下次备份当成正式文件收走，先逐个清掉（已 rename 成功的
+    // 自然不存在，force 删除是空操作）。
+    for (const entry of targets) {
+      try { rmSync(entry.target + '.update-tmp', { force: true }) } catch { /* 清理失败不掩盖原始错误 */ }
+    }
     rollbackPayload({ packageDir, backupDir, before: backedUp, written })
     restoredFiles()
     if (typeof log === 'function') log('update rolled back: ' + error.message)
@@ -321,6 +329,20 @@ export function rollbackPayload(context) {
     }
   }
   return { restored, removed }
+}
+
+// 读响应声明的内容长度：fetch 的 Headers 与测试替身的普通对象两种形状都认。
+// 认不出（没声明、值非法）返回 null，调用方退回「读完再查」的原有兜底。
+function declaredContentLength(headers) {
+  if (!headers) return null
+  let raw = null
+  if (typeof headers.get === 'function') {
+    try { raw = headers.get('content-length') } catch { raw = null }
+  } else if (typeof headers === 'object') {
+    raw = headers['content-length']
+  }
+  const value = Number(raw)
+  return Number.isFinite(value) && value >= 0 ? value : null
 }
 
 // ---------- 引擎 ----------
@@ -423,6 +445,10 @@ export function createSelfUpdater(options) {
       const url = UPDATE_REGISTRY_ORIGIN + '/' + PACKAGE_NAME + '/-/' + PACKAGE_NAME + '-' + version + '.tgz'
       const response = await fetchImpl(url, { headers: { accept: 'application/octet-stream' }, signal: controller.signal })
       if (!response.ok) throw new Error('download failed: http ' + response.status)
+      // 先看声明长度：已经超限就直接拒绝，不把异常大响应整包读进内存再查。
+      // 没声明或声明不可信时，读完后的实测检查仍然在下面兜底。
+      const declared = declaredContentLength(response.headers)
+      if (declared !== null && declared > maxBytes) throw new Error('download failed: too large (' + declared + ' bytes)')
       const buffer = Buffer.from(await response.arrayBuffer())
       if (buffer.length === 0) throw new Error('download failed: empty body')
       if (buffer.length > maxBytes) throw new Error('download failed: too large (' + buffer.length + ' bytes)')
@@ -433,11 +459,28 @@ export function createSelfUpdater(options) {
   }
 
   // 备份目录只保留最近若干份，避免长期堆积占用户空间。
-  function pruneBackups() {
+  // 目录以版本号命名，排序必须按语义版本：字典序里 '0.9.0' 排在 '0.10.0'
+  // 后面，按字典序删会删掉较新的、留着最旧的，甚至删掉刚建的那一份
+  // （回滚时报 no-backup，逃生门失效）。
+  // 两份无条件保护：刚建的这一份、state.pendingVersion 指向的那份
+  // （回滚靠它定位目录），哪怕因此暂时超过 keepBackups 也不删。
+  function pruneBackups(justCreated) {
     try {
-      const names = readdirSync(backupRoot).filter((name) => name !== 'previous').sort()
-      for (const name of names.slice(0, Math.max(0, names.length - keepBackups))) {
+      const protectedNames = new Set(
+        [justCreated, state.pendingVersion].filter((name) => typeof name === 'string' && name.length > 0),
+      )
+      const names = readdirSync(backupRoot).filter((name) => name !== 'previous')
+      const byAge = names.slice().sort((a, b) => {
+        const delta = compareSemver(a, b)
+        if (delta !== 0) return delta
+        return a < b ? -1 : a > b ? 1 : 0
+      })
+      let removable = names.length - keepBackups
+      for (const name of byAge) {
+        if (removable <= 0) break
+        if (protectedNames.has(name)) continue
         rmSync(join(backupRoot, name), { recursive: true, force: true })
+        removable--
       }
     } catch { /* 目录不存在即无需清理 */ }
   }
@@ -449,7 +492,7 @@ export function createSelfUpdater(options) {
     // 用户打开设置页后，即使启动时的自动下载已经开始，也不得在当前页面替换插件文件。
     if (!manual && !autoInstallAllowed()) return false
     const result = applyPayload(files, { packageDir, backupDir: join(backupRoot, target.version), log })
-    pruneBackups()
+    pruneBackups(target.version)
     return !!result
   }
 
@@ -573,8 +616,14 @@ export function createSelfUpdater(options) {
     rollback() {
       const target = state.pendingVersion
       if (!target) return { restored: false, reason: 'nothing-to-roll-back' }
+      // 安装在途时不许回滚：在途安装收尾时会把新版再盖回去并改状态，
+      // 先滚后装等于回滚被静默撤销，用户还以为已经退回去了。
+      if (inFlight.install) return { restored: false, reason: 'update-in-flight' }
       const backupDir = join(backupRoot, target)
       if (!existsSync(backupDir)) return { restored: false, reason: 'no-backup' }
+      // 磁盘上的版本必须正是待回滚的那个版本：被插件之外的东西换过
+      // （DSH 重装、手动装了别的包）时备份与磁盘对不上号，照滚只会更乱。
+      if (diskVersion() !== target) return { restored: false, reason: 'version-changed' }
       const before = listPayloadFiles(backupDir)
       const current = listPayloadFiles(packageDir)
       const result = rollbackPayload({ packageDir, backupDir, before, written: current })

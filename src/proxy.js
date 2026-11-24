@@ -17,6 +17,7 @@ import { createServer } from 'node:http'
 import { Readable } from 'node:stream'
 import { normalizeResponsesBody } from './siwc.js'
 import { classifyNetworkError } from './network.js'
+import { readRequestBody } from './http-body.js'
 
 const MAX_BODY_BYTES = 48 * 1024 * 1024
 
@@ -33,29 +34,15 @@ const UPSTREAM_MESSAGES = {
   tls: 'Certificate verification failed for the connection to ChatGPT',
 }
 
-function sendJson(res, status, payload) {
+function sendJson(res, status, payload, closeConnection) {
   if (res.headersSent) { try { res.destroy() } catch (err) {} return }
   const body = JSON.stringify(payload)
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(body) })
+  const headers = { 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(body) }
+  // 413 时请求体还没读完：声明关连接，响应送达后由服务端收尾，
+  // 不给未读完的请求体留半开状态（读取契约见 src/http-body.js）。
+  if (closeConnection) headers.connection = 'close'
+  res.writeHead(status, headers)
   res.end(body)
-}
-
-function readBody(req) {
-  return new Promise(function (resolve, reject) {
-    let size = 0
-    const chunks = []
-    req.on('data', function (chunk) {
-      size += chunk.length
-      if (size > MAX_BODY_BYTES) {
-        reject(Object.assign(new Error('payload too large'), { status: 413 }))
-        req.destroy()
-        return
-      }
-      chunks.push(chunk)
-    })
-    req.on('end', function () { resolve(Buffer.concat(chunks).toString('utf8')) })
-    req.on('error', reject)
-  })
 }
 
 function bearerToken(req) {
@@ -87,6 +74,10 @@ export function startResponsesProxy(options) {
 
   return new Promise(function (resolve, reject) {
     const server = createServer(async function (req, res) {
+      // 客户端中途断开时 res 会 emit 'error'；没有监听者时它会变成未捕获异常，
+      // 足以拖垮宿主进程。代理是长驻服务，这里只吞连接级的噪声错误，
+      // 业务失败仍走各自的响应路径报告。
+      res.on('error', function () {})
       const started = Date.now()
       let pathname = '/'
       try {
@@ -122,12 +113,12 @@ export function startResponsesProxy(options) {
       let body = null
       if (pathname === '/v1/responses') {
         try {
-          const raw = await readBody(req)
+          const raw = await readRequestBody(req, MAX_BODY_BYTES)
           const parsed = JSON.parse(raw)
           body = JSON.stringify(normalizeResponsesBody(parsed))
         } catch (err) {
           const status = err && err.status === 413 ? 413 : 400
-          sendJson(res, status, { error: { type: 'invalid_request_error', message: status === 413 ? 'Request body is too large' : 'Request body is not valid JSON' } })
+          sendJson(res, status, { error: { type: 'invalid_request_error', message: status === 413 ? 'Request body is too large' : 'Request body is not valid JSON' } }, status === 413)
           return
         }
       }
