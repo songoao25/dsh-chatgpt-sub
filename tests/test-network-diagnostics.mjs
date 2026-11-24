@@ -25,6 +25,19 @@ assert.deepEqual(classifyNetworkError({ code: 'ECONNRESET' }), { reason: 'unreac
 assert.deepEqual(classifyNetworkError(null), { reason: 'unknown' })
 assert.deepEqual(classifyNetworkError(new Error('boom')), { reason: 'unknown' })
 
+// undici 的真实形状：顶层是 TypeError('fetch failed')，真码在 cause 上，可能不止一层。
+const undiciRefused = new TypeError('fetch failed')
+undiciRefused.cause = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:7890'), { code: 'ECONNREFUSED' })
+assert.deepEqual(classifyNetworkError(undiciRefused), { reason: 'refused' })
+const undiciDns = new TypeError('fetch failed')
+undiciDns.cause = Object.assign(new Error('getaddrinfo ENOTFOUND auth.openai.com'), { code: 'ENOTFOUND' })
+assert.deepEqual(classifyNetworkError(undiciDns), { reason: 'dns' })
+const undiciDeepReset = new TypeError('fetch failed')
+const socketLayer = new Error('socket hang up')
+socketLayer.cause = Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' })
+undiciDeepReset.cause = socketLayer
+assert.deepEqual(classifyNetworkError(undiciDeepReset), { reason: 'unreachable' })
+
 // ---------- 2. HTTP 失败分类 ----------
 assert.deepEqual(
   classifyHttpFailure(403, { error: { code: 'unsupported_country_region_territory' } }),
@@ -104,6 +117,16 @@ try {
   const blocked = await exchangeAuthorizationCode(request)
   assert.equal(blocked.ok, false)
   assert.deepEqual(blocked.failure, { reason: 'region-blocked', status: 403 })
+
+  // undici 形状的连接被拒：顶层 TypeError，真码在 cause 上（代理端口没起的典型现场）。
+  globalThis.fetch = async function () {
+    const error = new TypeError('fetch failed')
+    error.cause = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:7890'), { code: 'ECONNREFUSED' })
+    throw error
+  }
+  const refused = await exchangeAuthorizationCode(request)
+  assert.equal(refused.ok, false)
+  assert.deepEqual(refused.failure, { reason: 'refused' })
 } finally {
   globalThis.fetch = originalFetch
 }
